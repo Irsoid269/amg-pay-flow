@@ -27,55 +27,59 @@ const PaymentConfirm = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="bg-primary text-primary-foreground p-6">
+    <div className="min-h-screen bg-background relative overflow-hidden">
+      <div className="absolute bottom-0 right-0 w-80 h-80 bg-turquoise/5 rounded-full blur-3xl arc-shape" />
+      
+      <div className="gradient-primary text-primary-foreground p-6">
         <div className="max-w-md mx-auto">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => navigate("/payment-method")}
-            className="text-primary-foreground hover:bg-primary-foreground/10 mb-4 -ml-2"
+            className="text-primary-foreground hover:bg-turquoise/20 mb-4 -ml-2 rounded-full"
             disabled={isProcessing}
           >
-            <ArrowLeft className="mr-2 h-4 w-4" />
+            <ArrowLeft className="mr-2 h-5 w-5" />
             Retour
           </Button>
-          <h1 className="text-2xl font-bold">Confirmation du paiement</h1>
-          <p className="text-primary-foreground/80 mt-2">
+          <h1 className="text-3xl font-bold mb-2">Confirmation du paiement</h1>
+          <p className="text-primary-foreground/90 text-sm">
             Vérifiez les informations avant de confirmer
           </p>
         </div>
       </div>
 
-      <div className="max-w-md mx-auto px-4 py-8 space-y-6">
-        <Card className="p-6 space-y-4 animate-scale-in">
-          <div className="flex items-center justify-between py-3 border-b border-border">
-            <span className="text-muted-foreground">Montant</span>
-            <span className="text-2xl font-bold text-primary">3 000 KMF</span>
+      <div className="max-w-md mx-auto px-4 py-8 space-y-6 relative z-10">
+        <Card className="p-6 space-y-4 animate-scale-in border-2 border-turquoise/20 rounded-2xl shadow-turquoise">
+          <div className="flex items-center justify-between py-4 border-b-2 border-turquoise/20">
+            <span className="text-muted-foreground font-medium">Montant</span>
+            <span className="text-3xl font-bold bg-gradient-to-r from-primary to-turquoise bg-clip-text text-transparent">3 000 KMF</span>
           </div>
 
-          <div className="flex items-center justify-between py-3 border-b border-border">
-            <span className="text-muted-foreground">Opérateur</span>
-            <span className="font-semibold">{operatorNames[operator]}</span>
+          <div className="flex items-center justify-between py-4 border-b border-border">
+            <span className="text-muted-foreground font-medium">Opérateur</span>
+            <span className="font-bold text-lg text-primary">{operatorNames[operator]}</span>
           </div>
 
-          <div className="flex items-center justify-between py-3 border-b border-border">
-            <span className="text-muted-foreground">Référence</span>
-            <span className="font-mono text-sm">{insuranceNumber}</span>
+          <div className="flex items-center justify-between py-4 border-b border-border">
+            <span className="text-muted-foreground font-medium">Référence</span>
+            <span className="font-mono text-sm font-semibold text-primary">{insuranceNumber}</span>
           </div>
 
-          <div className="flex items-center justify-between py-3">
-            <span className="text-muted-foreground">Bénéficiaire</span>
-            <span className="font-semibold">AMG Comores</span>
+          <div className="flex items-center justify-between py-4">
+            <span className="text-muted-foreground font-medium">Bénéficiaire</span>
+            <span className="font-bold text-primary">AMG Comores</span>
           </div>
         </Card>
 
-        <Card className="p-4 bg-accent/5 border-accent/20">
-          <div className="flex items-start gap-3">
-            <CheckCircle2 className="w-5 h-5 text-accent mt-0.5" />
+        <Card className="p-5 bg-turquoise/5 border-2 border-turquoise/20 rounded-2xl">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded-full bg-turquoise/20 flex items-center justify-center flex-shrink-0">
+              <CheckCircle2 className="w-6 h-6 text-turquoise" />
+            </div>
             <div>
-              <p className="font-medium text-sm mb-1">Activation automatique</p>
-              <p className="text-sm text-muted-foreground">
+              <p className="font-bold text-sm mb-2 text-foreground">Activation automatique</p>
+              <p className="text-sm text-muted-foreground leading-relaxed">
                 Vos droits AMG seront activés immédiatement après confirmation du paiement.
               </p>
             </div>
@@ -85,20 +89,20 @@ const PaymentConfirm = () => {
         <Button
           onClick={handleConfirm}
           disabled={isProcessing}
-          className="w-full h-14 text-base font-semibold shadow-lg"
+          className="w-full h-16 text-lg font-bold gradient-turquoise hover:shadow-turquoise transition-all duration-300 rounded-2xl"
           size="lg"
         >
           {isProcessing ? (
-            <span className="flex items-center gap-2">
-              <span className="animate-spin">⏳</span>
-              Paiement en cours...
+            <span className="flex items-center gap-3">
+              <span className="animate-spin text-2xl">⏳</span>
+              <span>Paiement en cours...</span>
             </span>
           ) : (
             "Confirmer le paiement"
           )}
         </Button>
 
-        <p className="text-center text-sm text-muted-foreground">
+        <p className="text-center text-sm text-muted-foreground font-medium">
           En confirmant, vous acceptez le prélèvement de 3 000 KMF
         </p>
       </div>
