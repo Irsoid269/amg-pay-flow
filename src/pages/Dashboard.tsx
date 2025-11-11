@@ -17,11 +17,13 @@ const Dashboard = () => {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="bg-primary text-primary-foreground p-6 pb-24">
+    <div className="min-h-screen bg-background relative overflow-hidden">
+      <div className="absolute top-0 right-0 w-72 h-72 bg-turquoise/5 rounded-full blur-3xl arc-shape" />
+      
+      <div className="gradient-primary text-primary-foreground p-6 pb-28 relative">
         <div className="max-w-md mx-auto">
-          <div className="flex items-center justify-between mb-4">
-            <img src={logoAmg} alt="Logo AMG" className="h-12 w-auto" />
+          <div className="flex items-center justify-between mb-6">
+            <img src={logoAmg} alt="Logo AMG" className="h-14 w-auto drop-shadow-lg" />
             <Button
               variant="ghost"
               size="sm"
@@ -29,41 +31,42 @@ const Dashboard = () => {
                 localStorage.removeItem("insuranceNumber");
                 navigate("/");
               }}
-              className="text-primary-foreground hover:bg-primary-foreground/10"
+              className="text-primary-foreground hover:bg-turquoise/20 rounded-full"
             >
-              <LogOut className="h-4 w-4" />
+              <LogOut className="h-5 w-5" />
             </Button>
           </div>
-          <h1 className="text-2xl font-bold mb-1">Bonjour, {userName} 👋</h1>
-          <p className="text-primary-foreground/80 text-sm">Bienvenue sur votre espace AMG</p>
+          <h1 className="text-3xl font-bold mb-2">Bonjour, {userName} 👋</h1>
+          <p className="text-primary-foreground/90 text-sm">Bienvenue sur votre espace AMG</p>
         </div>
       </div>
 
-      <div className="max-w-md mx-auto px-4 -mt-16 pb-8 space-y-4">
-        <Card className="p-6 shadow-lg animate-scale-in">
+      <div className="max-w-md mx-auto px-4 -mt-20 pb-8 space-y-4 relative z-10">
+        <Card className="p-6 shadow-turquoise animate-scale-in gradient-card border-2 border-turquoise/20 rounded-2xl">
           <div className="space-y-4">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Numéro d'assurance</p>
-                <p className="text-lg font-semibold">{insuranceNumber}</p>
+                <p className="text-sm text-muted-foreground font-medium">Numéro d'assurance</p>
+                <p className="text-lg font-bold text-primary">{insuranceNumber}</p>
               </div>
-              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-warning/10 text-warning text-sm">
+              <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-warning/10 text-warning text-sm font-semibold border border-warning/20">
                 <AlertCircle className="w-4 h-4" />
                 Inactif
               </div>
             </div>
 
-            <div className="pt-4 border-t border-border">
-              <p className="text-sm text-muted-foreground mb-1">Montant à payer</p>
-              <p className="text-3xl font-bold text-primary">3 000 KMF</p>
-              <p className="text-sm text-muted-foreground mt-1">Cotisation mensuelle</p>
+            <div className="pt-4 border-t border-turquoise/20">
+              <p className="text-sm text-muted-foreground mb-2 font-medium">Montant à payer</p>
+              <p className="text-4xl font-bold bg-gradient-to-r from-primary to-turquoise bg-clip-text text-transparent">3 000 KMF</p>
+              <p className="text-sm text-muted-foreground mt-2">Cotisation mensuelle</p>
             </div>
 
-            <div className="pt-2">
-              <p className="text-sm text-destructive flex items-center gap-2">
-                <AlertCircle className="w-4 h-4" />
-                Couverture inactive - En attente de paiement
-              </p>
+            <div className="pt-3 flex items-start gap-3 p-3 bg-destructive/5 border border-destructive/20 rounded-xl">
+              <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-destructive">Couverture inactive</p>
+                <p className="text-xs text-destructive/80 mt-0.5">En attente de paiement</p>
+              </div>
             </div>
           </div>
         </Card>
@@ -71,31 +74,38 @@ const Dashboard = () => {
         <div className="space-y-3">
           <Button
             onClick={() => navigate("/payment-method")}
-            className="w-full h-14 text-base font-semibold shadow-lg"
+            className="w-full h-16 text-base font-bold gradient-turquoise hover:shadow-turquoise transition-all duration-300 rounded-2xl"
             size="lg"
           >
-            <CreditCard className="mr-2 h-5 w-5" />
+            <CreditCard className="mr-3 h-6 w-6" />
             Payer ma cotisation
           </Button>
 
           <Button
             onClick={() => navigate("/history")}
             variant="outline"
-            className="w-full h-14 text-base font-semibold"
+            className="w-full h-16 text-base font-bold border-2 border-turquoise/30 hover:bg-turquoise/5 hover:border-turquoise rounded-2xl"
             size="lg"
           >
-            <History className="mr-2 h-5 w-5" />
+            <History className="mr-3 h-6 w-6" />
             Historique des paiements
           </Button>
         </div>
 
-        <Card className="p-4 bg-accent/5 border-accent/20">
-          <p className="text-sm text-accent-foreground font-medium mb-2">
-            ℹ️ Informations importantes
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Vos droits AMG seront activés immédiatement après confirmation du paiement.
-          </p>
+        <Card className="p-5 bg-turquoise/5 border-2 border-turquoise/20 rounded-2xl">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-full bg-turquoise/20 flex items-center justify-center flex-shrink-0">
+              <span className="text-lg">ℹ️</span>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground mb-1">
+                Protection immédiate
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Vos droits AMG seront activés immédiatement après confirmation du paiement.
+              </p>
+            </div>
+          </div>
         </Card>
       </div>
     </div>
