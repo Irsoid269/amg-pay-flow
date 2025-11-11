@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Shield } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import logoAmg from "@/assets/logo-amg.png";
 
 const Login = () => {
   const [insuranceNumber, setInsuranceNumber] = useState("");
@@ -38,13 +38,9 @@ const Login = () => {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-8 animate-fade-in">
         <div className="text-center space-y-4">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-primary/10 mb-4">
-            <Shield className="w-10 h-10 text-primary" />
+          <div className="inline-flex items-center justify-center mb-6">
+            <img src={logoAmg} alt="Logo AMG" className="w-48 h-auto" />
           </div>
-          <h1 className="text-3xl font-bold text-foreground">UTGAM</h1>
-          <p className="text-muted-foreground">
-            Assurance Maladie Généralisée
-          </p>
           <p className="text-sm text-muted-foreground">openIMIS Comores</p>
         </div>
 
