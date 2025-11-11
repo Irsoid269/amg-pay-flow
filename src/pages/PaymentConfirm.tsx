@@ -66,7 +66,7 @@ const PaymentConfirm = () => {
 
           <div className="flex items-center justify-between py-3">
             <span className="text-muted-foreground">Bénéficiaire</span>
-            <span className="font-semibold">UTGAM</span>
+            <span className="font-semibold">AMG Comores</span>
           </div>
         </Card>
 

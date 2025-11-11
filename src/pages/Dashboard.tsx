@@ -1,8 +1,9 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { CreditCard, History, Shield, AlertCircle } from "lucide-react";
+import { CreditCard, History, AlertCircle, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
+import logoAmg from "@/assets/logo-amg.png";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -20,7 +21,7 @@ const Dashboard = () => {
       <div className="bg-primary text-primary-foreground p-6 pb-24">
         <div className="max-w-md mx-auto">
           <div className="flex items-center justify-between mb-4">
-            <Shield className="w-8 h-8" />
+            <img src={logoAmg} alt="Logo AMG" className="h-12 w-auto" />
             <Button
               variant="ghost"
               size="sm"
@@ -30,7 +31,7 @@ const Dashboard = () => {
               }}
               className="text-primary-foreground hover:bg-primary-foreground/10"
             >
-              Déconnexion
+              <LogOut className="h-4 w-4" />
             </Button>
           </div>
           <h1 className="text-2xl font-bold mb-1">Bonjour, {userName} 👋</h1>
