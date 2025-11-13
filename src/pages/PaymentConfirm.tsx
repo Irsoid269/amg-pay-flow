@@ -12,9 +12,7 @@ const PaymentConfirm = () => {
   const insuranceNumber = localStorage.getItem("insuranceNumber") || "AMG-2025-001245";
 
   const operatorNames: Record<string, string> = {
-    holo: "HOLO 🟢",
-    huri: "HURI 🟣",
-    mvola: "MVOLA 🟠",
+    holo: "HOLO",
   };
 
   const handleConfirm = () => {
