@@ -70,76 +70,53 @@ const Notifications = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-accent/5 relative overflow-hidden">
-      {/* Decorative elements */}
-      <div className="absolute top-0 left-20 w-80 h-80 bg-accent/5 rounded-full blur-3xl animate-pulse-soft" />
-      
-      <div className="gradient-primary text-primary-foreground p-6 pb-12 relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-black/0 to-black/10" />
-        <div className="max-w-4xl mx-auto relative z-10 animate-fade-in">
+    <div className="min-h-screen bg-background">
+      <div className="bg-primary text-primary-foreground p-6">
+        <div className="max-w-md mx-auto">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => navigate("/dashboard")}
-            className="text-primary-foreground hover:bg-primary-foreground/10 mb-6 -ml-2 rounded-full transition-all hover:scale-105"
+            className="text-primary-foreground hover:bg-primary-foreground/10 mb-4 -ml-2"
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
             Retour
           </Button>
-          <h1 className="text-3xl md:text-4xl font-bold mb-3 animate-fade-in-left">
-            Notifications
-          </h1>
-          <p className="text-primary-foreground/80 text-sm md:text-base animate-fade-in-left" style={{ animationDelay: '0.1s' }}>
-            Messages et alertes de vos opérateurs mobiles
+          <h1 className="text-2xl font-bold">Notifications</h1>
+          <p className="text-primary-foreground/80 mt-2">
+            Messages de vos opérateurs mobiles
           </p>
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 -mt-8 pb-12 relative z-10">
+      <div className="max-w-md mx-auto px-4 py-8">
         <div className="space-y-4">
-          {notifications.map((notification, index) => (
+          {notifications.map((notification) => (
             <Card
               key={notification.id}
-              className={`group p-6 animate-fade-in hover-lift transition-all duration-300 rounded-2xl overflow-hidden ${getTypeStyles(notification.type)}`}
-              style={{ animationDelay: `${index * 0.1}s` }}
+              className={`p-4 animate-fade-in ${getTypeStyles(notification.type)}`}
             >
-              <div className="flex items-start gap-4">
-                {/* Operator Icon */}
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/10 to-turquoise/10 flex items-center justify-center text-3xl flex-shrink-0 group-hover:scale-110 transition-transform duration-300">
-                  {getOperatorEmoji(notification.operator)}
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 space-y-2">
+              <div className="flex items-start gap-3">
+                <div className="text-2xl">{getOperatorEmoji(notification.operator)}</div>
+                <div className="flex-1 space-y-1">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-base text-foreground">{notification.operator}</span>
-                    <span className="text-xs text-muted-foreground px-3 py-1 bg-muted/50 rounded-full">
+                    <span className="font-semibold text-sm">{notification.operator}</span>
+                    <span className="text-xs text-muted-foreground">
                       {notification.time}
                     </span>
                   </div>
-                  <p className="text-sm text-foreground leading-relaxed">
-                    {notification.message}
-                  </p>
+                  <p className="text-sm text-foreground">{notification.message}</p>
                 </div>
               </div>
             </Card>
           ))}
         </div>
 
-        {/* Info Banner */}
-        <Card className="mt-8 p-6 bg-gradient-to-r from-accent/5 to-transparent border-2 border-accent/20 rounded-2xl animate-fade-in" style={{ animationDelay: '0.5s' }}>
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
-              <MessageSquare className="w-6 h-6 text-accent" />
-            </div>
-            <div>
-              <h3 className="font-bold text-foreground mb-2">Notifications SMS</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Les notifications SMS sont envoyées automatiquement par votre opérateur pour chaque transaction. 
-                Elles vous permettent de suivre l'état de vos paiements en temps réel.
-              </p>
-            </div>
-          </div>
+        <Card className="mt-6 p-4 bg-muted/50 flex items-center gap-3">
+          <MessageSquare className="w-5 h-5 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            Les notifications SMS sont envoyées automatiquement par votre opérateur
+          </p>
         </Card>
       </div>
     </div>
