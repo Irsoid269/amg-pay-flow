@@ -2,28 +2,15 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ArrowLeft, Smartphone } from "lucide-react";
+import logoHolo from "@/assets/logo-holo.png";
 
 const operators = [
   {
     id: "holo",
     name: "HOLO",
     color: "holo",
-    description: "USSD / Application mobile",
-    logo: "🟢",
-  },
-  {
-    id: "huri",
-    name: "HURI",
-    color: "huri",
-    description: "USSD / Application mobile",
-    logo: "🟣",
-  },
-  {
-    id: "mvola",
-    name: "MVOLA",
-    color: "mvola",
-    description: "USSD / Application mobile",
-    logo: "🟠",
+    description: "BDC - Mobile Banking",
+    logo: logoHolo,
   },
 ];
 
@@ -65,7 +52,9 @@ const PaymentMethod = () => {
             onClick={() => handleSelectOperator(operator.id)}
           >
             <div className="flex items-center gap-5">
-              <div className="text-6xl">{operator.logo}</div>
+              <div className="w-24 h-24 flex items-center justify-center">
+                <img src={operator.logo} alt={operator.name} className="w-full h-full object-contain" />
+              </div>
               <div className="flex-1">
                 <h3 className="text-2xl font-bold mb-2 text-primary">{operator.name}</h3>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
