@@ -52,8 +52,10 @@ const Dashboard = () => {
         setUserName(insuranceData.fullName || 'Utilisateur');
         setInsuranceNumber(insuranceData.insuranceNumber || '');
 
-        // Extraire le montant depuis Contract, InsurancePlan ou utiliser la valeur par défaut
-        let amount = '3 000';
+        console.log('=== DÉBUT EXTRACTION DES VRAIES VALEURS AMG ===');
+        
+        // NE PAS utiliser de valeur par défaut - on doit trouver les vraies valeurs dans les données FHIR
+        let amount = null;
         let paymentFrequency = 'mensuelle';
         
         // Fonction récursive pour chercher tous les montants dans un objet
@@ -120,30 +122,42 @@ const Dashboard = () => {
           console.log('All amounts found in Contract:', contractAmounts);
           
           // MONTANT DE LA COTISATION (contract-premium.amount)
-          // C'est le montant que l'assuré doit payer
+          // C'est le montant RÉEL que l'assuré doit payer selon le système AMG
           if (contract.term?.[0]?.asset?.[0]?.extension) {
             const premiumExtension = contract.term[0].asset[0].extension.find(
               (ext: any) => ext.url === 'https://openimis.github.io/openimis_fhir_r4_ig/StructureDefinition/contract-premium'
             );
             
             if (premiumExtension?.extension) {
-              console.log('Premium extension found:', JSON.stringify(premiumExtension, null, 2));
+              console.log('✓ Premium extension trouvée dans le système AMG');
               
               const amountExt = premiumExtension.extension.find((ext: any) => ext.url === 'amount');
               if (amountExt?.valueMoney?.value) {
-                amount = new Intl.NumberFormat('fr-FR').format(amountExt.valueMoney.value);
-                console.log('💰 MONTANT COTISATION (contract.premium.amount):', amount, 'KMF');
+                const rawAmount = amountExt.valueMoney.value;
+                amount = new Intl.NumberFormat('fr-FR').format(rawAmount);
+                console.log('✅ MONTANT COTISATION TROUVÉ dans AMG:', amount, 'KMF (valeur brute:', rawAmount, ')');
+                console.log('   Source: contract.term[0].asset[0].extension (contract-premium.amount)');
+                console.log('   Assuré:', insuranceData.insuranceNumber, '-', insuranceData.fullName);
+              } else {
+                console.error('❌ Montant NON trouvé dans premium extension');
+                console.log('   Premium extension:', JSON.stringify(premiumExtension, null, 2));
               }
+            } else {
+              console.error('❌ Premium extension NON trouvée dans contract.term[0].asset[0].extension');
             }
+          } else {
+            console.error('❌ Aucune extension trouvée dans contract.term[0].asset[0]');
           }
           
-          // VALEUR DE LA POLICE (PolicyValue)
-          // C'est la couverture maximum, PAS le montant à payer
+          // VALEUR DE LA POLICE (PolicyValue) - pour information uniquement
           if (contract.term?.[0]?.asset?.[0]?.valuedItem?.[0]?.net?.value) {
             const policyValue = contract.term[0].asset[0].valuedItem[0].net.value;
-            console.log('📋 POLICY VALUE (couverture max, tblPolicy.PolicyValue):', new Intl.NumberFormat('fr-FR').format(policyValue), 'KMF');
-            console.log('   Note: PolicyValue est la couverture, pas le montant à payer');
+            console.log('ℹ️  POLICY VALUE (couverture max):', new Intl.NumberFormat('fr-FR').format(policyValue), 'KMF');
+            console.log('   Note: Ceci est la couverture, PAS le montant à payer');
           }
+        } else {
+          console.error('❌ Aucun Contract trouvé dans les données AMG');
+          console.log('   contractData:', insuranceData.contractData);
         }
         
         // Stratégie 2: Explorer complètement le Coverage
@@ -181,10 +195,28 @@ const Dashboard = () => {
         }
         
         console.log('=== END OF AMOUNT SEARCH ===');
-        console.log('💰 Montant final à afficher:', amount, 'KMF');
+        
+        // Vérifier si on a trouvé un montant réel
+        if (amount === null) {
+          console.error('❌ ERREUR CRITIQUE: Aucun montant trouvé dans les données AMG pour cet assuré');
+          console.error('   Assuré:', insuranceData.insuranceNumber, '-', insuranceData.fullName);
+          console.error('   Les données FHIR ne contiennent pas de montant de cotisation');
+          
+          // Afficher un message d'erreur à l'utilisateur
+          toast({
+            title: "Données incomplètes",
+            description: "Le montant de cotisation n'est pas disponible dans le système AMG",
+            variant: "destructive",
+          });
+          
+          // Utiliser une valeur d'erreur visible
+          amount = 'N/A';
+        } else {
+          console.log('✅ Montant final validé:', amount, 'KMF');
+          console.log('   Pour l\'assuré:', insuranceData.insuranceNumber, '-', insuranceData.fullName);
+        }
+        
         console.log('📅 Type de paiement:', paymentFrequency);
-
-        // Ne PAS écraser le montant ici, on utilise celui trouvé dans contract.premium
         
         // === MAPPING OFFICIEL openIMIS FHIR ===
         // tblPolicy → Contract (ressource FHIR)
@@ -271,11 +303,15 @@ const Dashboard = () => {
         
         console.log('=== FINAL STATUS ===');
         console.log('Coverage Status:', finalStatus);
-        console.log('=== FINAL AMOUNT ===');
-        console.log('💰 Montant cotisation pour cet assuré:', amount, 'KMF');
+        console.log('=== RÉSUMÉ POUR CET ASSURÉ ===');
+        console.log('👤 Assuré:', insuranceData.insuranceNumber, '-', insuranceData.fullName);
+        console.log('📊 Statut:', finalStatus);
+        console.log('💰 Montant cotisation:', amount, 'KMF');
+        console.log('📅 Type:', paymentFrequency);
+        console.log('======================================');
         
         setCoverageStatus(finalStatus);
-        setPaymentAmount(amount);
+        setPaymentAmount(amount || 'N/A');
         setPaymentType(paymentFrequency);
         
         setIsLoading(false);
