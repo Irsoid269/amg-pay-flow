@@ -57,10 +57,18 @@ const Login = () => {
       }
 
       // Si l'assuré existe, on stocke les données et on redirige directement
-      console.log('Assuré trouvé, redirection vers le dashboard...');
+      console.log('Assuré trouvé:', data.fullName, '- Numéro:', insuranceNumber);
+      console.log('=== DONNÉES REÇUES DE L\'API AMG ===');
+      console.log('Patient:', data.patientData?.id);
+      console.log('Contract:', data.contractData?.entry?.length || 0, 'entrée(s)');
+      console.log('Coverage:', data.coverageData?.entry?.length || 0, 'entrée(s)');
+      console.log('Insurance Plan:', data.insurancePlanData?.entry?.length || 0, 'entrée(s)');
       
-      // Stocker les données de l'assuré dans le localStorage
-      localStorage.setItem('amg_insurance_data', JSON.stringify({
+      // IMPORTANT: Vider l'ancien cache avant de stocker les nouvelles données
+      localStorage.removeItem('amg_insurance_data');
+      
+      // Stocker les NOUVELLES données de l'assuré dans le localStorage
+      const insuranceData = {
         insuranceNumber,
         fullName: data.fullName,
         patientData: data.patientData,
@@ -68,7 +76,10 @@ const Login = () => {
         contractData: data.contractData,
         insurancePlanData: data.insurancePlanData,
         timestamp: Date.now(),
-      }));
+      };
+      
+      localStorage.setItem('amg_insurance_data', JSON.stringify(insuranceData));
+      console.log('✅ Données AMG stockées pour', data.fullName);
 
       toast({
         title: "Connexion réussie",
