@@ -168,6 +168,7 @@ Deno.serve(async (req) => {
     if (contractResponse.ok) {
       contractData = await contractResponse.json();
       console.log('Contract data retrieved successfully');
+      console.log('Contract details:', JSON.stringify(contractData, null, 2));
     } else {
       console.log('Contract data not available:', contractResponse.status);
     }
@@ -190,6 +191,7 @@ Deno.serve(async (req) => {
       if (insurancePlanResponse.ok) {
         insurancePlanData = await insurancePlanResponse.json();
         console.log('Insurance plan data retrieved successfully');
+        console.log('Insurance plan details:', JSON.stringify(insurancePlanData, null, 2));
       } else {
         console.log('Insurance plan data not available:', insurancePlanResponse.status);
       }
