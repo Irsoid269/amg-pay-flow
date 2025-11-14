@@ -234,15 +234,95 @@ const Dashboard = () => {
         //   "executed" = police exécutée (PolicyStatus=2)
         //   "cancelled" = police annulée
         //   "terminated" = police terminée
-        console.log('=== DETERMINING POLICY STATUS (tblPolicy.PolicyStatus) ===');
+        console.log('=== DETERMINING POLICY STATUS FROM AMG SYSTEM (tblPolicy.PolicyStatus) ===');
         
         let finalStatus = 'inactive';
+        let policyStatusCode = null;
         
         if (insuranceData.contractData?.entry?.[0]?.resource) {
           const contract = insuranceData.contractData.entry[0].resource;
-          console.log('📋 Contract.status (maps to tblPolicy.PolicyStatus):', contract.status);
           
-          // Vérifier période de validité (tblPolicy.EffectiveDate / ExpiryDate)
+          // ÉTAPE 1: Chercher le PolicyStatus NUMÉRIQUE dans les extensions
+          // C'est la valeur RÉELLE du système AMG (tblPolicy.PolicyStatus)
+          const findPolicyStatusValue = (obj: any): number | null => {
+            if (obj === null || obj === undefined) return null;
+            
+            if (typeof obj === 'object') {
+              // Chercher une extension avec url contenant 'policy-status' ou 'PolicyStatus'
+              if (obj.url && (obj.url.includes('policy-status') || obj.url.includes('PolicyStatus'))) {
+                console.log('🔍 Found policy-status extension:', JSON.stringify(obj, null, 2));
+                
+                // Le statut peut être dans valueCode, valueString, valueInteger, valueDecimal
+                if (obj.valueCode !== undefined) {
+                  // Mapper les codes textuels aux valeurs numériques AMG
+                  const codeMap: { [key: string]: number } = {
+                    'idle': 1,
+                    'active': 2,
+                    'suspended': 4,
+                    'expired': 8,
+                    'ready': 16
+                  };
+                  const code = obj.valueCode.toLowerCase();
+                  if (codeMap[code] !== undefined) {
+                    console.log(`✓ Found valueCode: "${obj.valueCode}" → PolicyStatus = ${codeMap[code]}`);
+                    return codeMap[code];
+                  }
+                }
+                if (obj.valueString !== undefined) {
+                  const str = obj.valueString.toLowerCase();
+                  if (str === 'active' || str === '2') return 2;
+                  if (str === 'idle' || str === '1') return 1;
+                  if (str === 'suspended' || str === '4') return 4;
+                  if (str === 'expired' || str === '8') return 8;
+                  if (str === 'ready' || str === '16') return 16;
+                  console.log(`✓ Found valueString: "${obj.valueString}"`);
+                }
+                if (obj.valueInteger !== undefined) {
+                  console.log(`✓ Found valueInteger: ${obj.valueInteger}`);
+                  return obj.valueInteger;
+                }
+                if (obj.valueDecimal !== undefined) {
+                  console.log(`✓ Found valueDecimal: ${obj.valueDecimal}`);
+                  return Math.floor(obj.valueDecimal);
+                }
+              }
+              
+              // Chercher dans les sous-extensions
+              if (obj.extension && Array.isArray(obj.extension)) {
+                for (const ext of obj.extension) {
+                  const found = findPolicyStatusValue(ext);
+                  if (found !== null) return found;
+                }
+              }
+              
+              // Chercher récursivement dans tous les objets
+              for (const key in obj) {
+                if (key !== 'extension') { // Éviter les doublons
+                  const found = findPolicyStatusValue(obj[key]);
+                  if (found !== null) return found;
+                }
+              }
+            }
+            
+            return null;
+          };
+          
+          policyStatusCode = findPolicyStatusValue(contract);
+          
+          if (policyStatusCode !== null) {
+            console.log('✅ POLICY STATUS CODE FOUND:', policyStatusCode);
+            console.log('   Mapping to AMG system:');
+            console.log('   1 = Idle (en attente)');
+            console.log('   2 = Active (couvert)');
+            console.log('   4 = Suspended (suspendu)');
+            console.log('   8 = Expired (expiré)');
+            console.log('   16 = Ready (prêt)');
+          } else {
+            console.log('⚠️  PolicyStatus numérique NON trouvé dans les extensions');
+            console.log('   Fallback: utilisation de Contract.status textuel');
+          }
+          
+          // ÉTAPE 2: Vérifier la période de validité
           let periodValid = false;
           let periodStart = null;
           let periodEnd = null;
@@ -259,46 +339,68 @@ const Dashboard = () => {
             console.log('📅 Period valid:', periodValid);
           }
           
-          // LOGIQUE OFFICIELLE openIMIS pour déterminer le statut de l'assuré:
-          // 1. Contract.status doit indiquer une police active
-          // 2. La période doit être valide (entre EffectiveDate et ExpiryDate)
-          // 3. Contract.status "offered" ou "policy" ou "executed" = PolicyStatus=2 (Active)
-          
-          const statusLower = contract.status?.toLowerCase() || '';
-          
-          // Déterminer si la police est dans un état actif selon le système AMG
-          const isActiveStatus = (
-            statusLower === 'offered' || 
-            statusLower === 'policy' || 
-            statusLower === 'executed'
-          );
-          
-          if (isActiveStatus && periodValid) {
-            finalStatus = 'active';
-            console.log('✅ POLICY STATUS: ACTIVE (tblPolicy.PolicyStatus=2)');
-            console.log(`   Contract.status="${contract.status}" (active state in AMG system)`);
-            console.log(`   Period valid: ${periodStart} to ${periodEnd}`);
-          } else {
-            finalStatus = 'inactive';
-            console.log('❌ POLICY STATUS: INACTIVE');
-            if (!isActiveStatus) {
-              console.log(`   Reason: Contract.status="${contract.status}" indicates inactive state in AMG system`);
-              console.log(`   (not offered/policy/executed = PolicyStatus is not 2)`);
-            }
-            if (!periodValid) {
-              console.log('   Reason: Period expired or not yet started');
-              if (periodStart && periodEnd) {
-                const now = new Date();
-                const start = new Date(periodStart);
-                const end = new Date(periodEnd);
-                if (now < start) {
-                  console.log(`   Policy not yet effective (starts ${periodStart})`);
-                } else if (now > end) {
-                  console.log(`   Policy expired (ended ${periodEnd})`);
+          // ÉTAPE 3: Déterminer le statut final basé sur PolicyStatus ET la période
+          if (policyStatusCode !== null) {
+            // Utiliser le PolicyStatus numérique (valeur RÉELLE du système AMG)
+            if (policyStatusCode === 2 && periodValid) {
+              finalStatus = 'active';
+              console.log('✅ ASSURÉ COUVERT');
+              console.log(`   Raison: PolicyStatus = 2 (Active) ET période valide`);
+              console.log(`   Période: ${periodStart} à ${periodEnd}`);
+            } else {
+              finalStatus = 'inactive';
+              console.log('❌ ASSURÉ NON COUVERT');
+              if (policyStatusCode !== 2) {
+                console.log(`   Raison: PolicyStatus = ${policyStatusCode} (pas Active)`);
+                if (policyStatusCode === 1) console.log('   État: Idle (en attente)');
+                if (policyStatusCode === 4) console.log('   État: Suspended (suspendu)');
+                if (policyStatusCode === 8) console.log('   État: Expired (expiré)');
+                if (policyStatusCode === 16) console.log('   État: Ready (prêt)');
+              }
+              if (!periodValid) {
+                console.log('   Raison additionnelle: Période de validité expirée ou non commencée');
+                if (periodStart && periodEnd) {
+                  const now = new Date();
+                  const start = new Date(periodStart);
+                  const end = new Date(periodEnd);
+                  if (now < start) {
+                    console.log(`   Police pas encore effective (commence le ${periodStart})`);
+                  } else if (now > end) {
+                    console.log(`   Police expirée (terminée le ${periodEnd})`);
+                  }
                 }
               }
             }
+          } else {
+            // Fallback: utiliser Contract.status textuel si PolicyStatus numérique non trouvé
+            console.log('⚠️  Utilisation du fallback (Contract.status textuel)');
+            const statusLower = contract.status?.toLowerCase() || '';
+            console.log('📋 Contract.status:', contract.status);
+            
+            const isActiveStatus = (
+              statusLower === 'offered' || 
+              statusLower === 'policy' || 
+              statusLower === 'executed'
+            );
+            
+            if (isActiveStatus && periodValid) {
+              finalStatus = 'active';
+              console.log('✅ ASSURÉ COUVERT (basé sur Contract.status)');
+              console.log(`   Contract.status="${contract.status}" + période valide`);
+            } else {
+              finalStatus = 'inactive';
+              console.log('❌ ASSURÉ NON COUVERT (basé sur Contract.status)');
+              if (!isActiveStatus) {
+                console.log(`   Raison: Contract.status="${contract.status}" n'indique pas un état actif`);
+              }
+              if (!periodValid) {
+                console.log('   Raison: Période de validité invalide');
+              }
+            }
           }
+        } else {
+          console.error('❌ ERREUR: Aucun Contract trouvé dans les données AMG');
+          console.log('   Impossible de déterminer le statut de couverture');
         }
         
         console.log('=== FINAL STATUS ===');
