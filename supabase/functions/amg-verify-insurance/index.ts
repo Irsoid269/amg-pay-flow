@@ -161,9 +161,10 @@ Deno.serve(async (req) => {
     
     // Query contracts by Group with sorting and increased page size
     // Sort by _lastUpdated descending to get most recent contracts first
+    // Increase count to 200 to get more contracts
     const contractQueryParam = groupId 
-      ? `subject=Group/${groupId}&_count=50&_sort=-_lastUpdated` 
-      : `subject=Patient/${patient.id}&_count=50&_sort=-_lastUpdated`;
+      ? `subject=Group/${groupId}&_count=200&_sort=-_lastUpdated` 
+      : `subject=Patient/${patient.id}&_count=200&_sort=-_lastUpdated`;
     
     const contractResponse = await fetch(
       `https://dev.amg.km/api/api_fhir_r4/Contract/?${contractQueryParam}`,
@@ -189,6 +190,19 @@ Deno.serve(async (req) => {
       if (contractData.entry && contractData.entry.length > 0) {
         console.log(`Analyzing ${contractData.entry.length} contracts...`);
         
+        // Log first 3 contracts to debug subject format
+        console.log('📋 Sample of first 3 contracts received:');
+        contractData.entry.slice(0, 3).forEach((entry: any, idx: number) => {
+          const contract = entry.resource;
+          const contractId = contract.identifier?.[1]?.value || contract.identifier?.[0]?.value || 'unknown';
+          const subject = contract.subject?.[0]?.reference || 'no subject';
+          const status = contract.status || 'no status';
+          const period = contract.term?.[0]?.asset?.[0]?.period?.[0];
+          console.log(`  [${idx + 1}] Contract ${contractId}:`);
+          console.log(`      subject="${subject}", status="${status}"`);
+          console.log(`      period: ${period?.start} to ${period?.end}`);
+        });
+        
         // IMPORTANT: In openIMIS, all members of a Group are covered by the Group's contract
         // We don't need to check if the patient is in typeReference
         // We just need to find the most recent ACTIVE contract (Executed status)
@@ -197,12 +211,16 @@ Deno.serve(async (req) => {
           const contract = entry.resource;
           
           // CRITICAL: Verify this contract belongs to THIS group
-          // The API returns all contracts, we must filter by subject
+          // The API should already have filtered by subject, but we double-check
+          // Accept multiple formats: "Group/123", "123", or any ending with "/123"
           const contractSubject = contract.subject?.[0]?.reference;
-          const belongsToThisGroup = contractSubject === `Group/${groupId}`;
+          const belongsToThisGroup = 
+            contractSubject === `Group/${groupId}` || 
+            contractSubject === groupId ||
+            contractSubject?.endsWith(`/${groupId}`);
           
           if (!belongsToThisGroup) {
-            // Skip contracts that don't belong to this group
+            // Skip contracts that don't belong to this group (shouldn't happen with API filter)
             return false;
           }
           
