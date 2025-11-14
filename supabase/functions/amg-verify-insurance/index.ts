@@ -147,10 +147,25 @@ Deno.serve(async (req) => {
     }
 
     // Step 4: Get contract/policy information to retrieve payment amount
-    // Note: Contracts are linked to Groups, not directly to Patients
-    // We need to find the contract that contains this specific patient
+    // IMPORTANT: Contracts in openIMIS are linked to GROUPS (families), not individual patients
+    // We need to get the patient's group first, then find the contract for that group
+    
+    // Extract the group reference from patient data
+    const groupRef = patient.extension?.find((ext: any) => 
+      ext.url === 'https://openimis.github.io/openimis_fhir_r4_ig/StructureDefinition/patient-group-reference'
+    )?.valueReference;
+    
+    const groupId = groupRef?.reference?.split('/')[1] || groupRef?.identifier?.value;
+    
+    console.log(`Patient belongs to Group: ${groupId}`);
+    
+    // Query contracts by Group, not by individual Patient
+    const contractQueryParam = groupId 
+      ? `subject=Group/${groupId}` 
+      : `subject=Patient/${patient.id}`; // fallback to patient if no group found
+    
     const contractResponse = await fetch(
-      `https://dev.amg.km/api/api_fhir_r4/Contract/?subject=Patient/${patient.id}`,
+      `https://dev.amg.km/api/api_fhir_r4/Contract/?${contractQueryParam}`,
       {
         method: 'GET',
         headers: {
@@ -166,30 +181,31 @@ Deno.serve(async (req) => {
     if (contractResponse.ok) {
       contractData = await contractResponse.json();
       console.log('Contract data retrieved successfully');
-      console.log(`Total contracts found: ${contractData.total || 0}`);
+      console.log(`Total contracts found for ${groupId ? 'Group' : 'Patient'}: ${contractData.total || 0}`);
       
-      // Analyze all contracts to find the one for this specific patient
+      // Analyze all contracts to find the best one for this patient's group
       if (contractData.entry && contractData.entry.length > 0) {
         console.log(`Analyzing ${contractData.entry.length} contracts...`);
         
-        // Filter contracts that contain this patient in their typeReference
+        // For group contracts, check if the patient is listed in typeReference
         const relevantContracts = contractData.entry.filter((entry: any) => {
           const contract = entry.resource;
           const typeReferences = contract.term?.[0]?.asset?.[0]?.typeReference || [];
           
-          // Check if this patient is in the typeReference list
-          const hasPatient = typeReferences.some((ref: any) => 
-            ref.display === patient.id || ref.identifier?.value === patient.id
-          );
+          // Check if this specific patient is covered in this contract
+          const hasPatient = typeReferences.some((ref: any) => {
+            const refId = ref.display || ref.identifier?.value;
+            return refId === patient.id;
+          });
           
           if (hasPatient) {
-            console.log(`✓ Found contract ${contract.identifier?.[1]?.value} with status: ${contract.status}`);
+            console.log(`✓ Found contract ${contract.identifier?.[1]?.value || contract.identifier?.[0]?.value} with status: ${contract.status} covering patient ${patient.id}`);
           }
           
           return hasPatient;
         });
         
-        console.log(`Found ${relevantContracts.length} relevant contracts for patient ${patient.id}`);
+        console.log(`Found ${relevantContracts.length} relevant contracts for patient ${patient.id} in their group`);
         
         if (relevantContracts.length > 0) {
           // Priority: Executed > Offered > others
@@ -205,6 +221,7 @@ Deno.serve(async (req) => {
             
             // Executed is the highest priority (actual active coverage)
             if (currentStatus === 'executed' && bestStatus !== 'executed') {
+              console.log(`   Preferring Executed status over ${bestStatus}`);
               return current;
             }
             if (bestStatus === 'executed' && currentStatus !== 'executed') {
@@ -216,6 +233,7 @@ Deno.serve(async (req) => {
             const bestDate = bestContract.term?.[0]?.asset?.[0]?.period?.[0]?.start;
             
             if (currentDate && bestDate && currentDate > bestDate) {
+              console.log(`   Preferring more recent contract: ${currentDate} vs ${bestDate}`);
               return current;
             }
             
@@ -224,7 +242,7 @@ Deno.serve(async (req) => {
           
           if (selectedContract) {
             const contract = selectedContract.resource;
-            console.log(`✅ Selected contract: ${contract.identifier?.[1]?.value}`);
+            console.log(`✅ Selected contract: ${contract.identifier?.[1]?.value || contract.identifier?.[0]?.value}`);
             console.log(`   Status: ${contract.status}`);
             console.log(`   Period: ${contract.term?.[0]?.asset?.[0]?.period?.[0]?.start} to ${contract.term?.[0]?.asset?.[0]?.period?.[0]?.end}`);
             
@@ -232,7 +250,8 @@ Deno.serve(async (req) => {
             contractData.entry = [selectedContract];
           }
         } else {
-          console.log('⚠️  No contracts found that specifically reference this patient');
+          console.log(`⚠️  No contracts found for patient ${patient.id} in their group contracts`);
+          console.log('   This may indicate the patient is not yet enrolled in any active policy');
         }
       }
     } else {
