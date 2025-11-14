@@ -21,6 +21,8 @@ const Login = () => {
         body: { insuranceNumber }
       });
 
+      console.log('Edge function response:', { data, error });
+
       if (error) {
         console.error('Edge function error:', error);
         toast({
@@ -32,7 +34,19 @@ const Login = () => {
         return;
       }
 
-      if (!data.exists) {
+      // Check if the edge function returned an error in the data
+      if (data?.error) {
+        console.error('Edge function returned error:', data.error);
+        toast({
+          title: "Erreur",
+          description: "Impossible de vérifier le numéro d'assurance",
+          variant: "destructive",
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      if (!data || !data.exists) {
         toast({
           title: "Numéro introuvable",
           description: "Ce numéro d'assurance n'existe pas dans notre système",
