@@ -99,19 +99,16 @@ const Login = () => {
           return;
         }
 
-        // Create profile
+        // Le profil est créé automatiquement par le trigger
+        // Mettre à jour avec les données complètes de l'AMG
         if (signUpData.user) {
-          const { error: profileError } = await supabase.from('profiles').insert({
-            id: signUpData.user.id,
-            insurance_number: insuranceNumber,
-            full_name: data.fullName,
-            patient_data: data.patientData,
-            coverage_data: data.coverageData,
-          });
-
-          if (profileError) {
-            console.error('Profile creation error:', profileError);
-          }
+          await supabase
+            .from('profiles')
+            .update({
+              patient_data: data.patientData,
+              coverage_data: data.coverageData,
+            })
+            .eq('id', signUpData.user.id);
         }
       } else if (signInData.user) {
         // Update profile with latest data from AMG
