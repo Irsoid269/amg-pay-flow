@@ -75,9 +75,9 @@ Deno.serve(async (req) => {
 
     console.log('Authentication successful, searching for patient...');
 
-    // Step 2: Search for patient with auth token
+    // Step 2: Get patient directly by ID (insurance number is the patient ID)
     const patientResponse = await fetch(
-      `https://dev.amg.km/api/api_fhir_r4/Patient/?identifier=${insuranceNumber}`,
+      `https://dev.amg.km/api/api_fhir_r4/Patient/${insuranceNumber}`,
       {
         method: 'GET',
         headers: {
@@ -110,22 +110,16 @@ Deno.serve(async (req) => {
     console.log('Patient data:', patientData);
 
     // Check if patient exists
-    // The API can return either a FHIR Bundle with entry or a direct Patient resource
-    let patient: PatientResource;
-    
-    if (patientData.resourceType === 'Patient') {
-      // Direct patient resource
-      patient = patientData;
-    } else if (patientData.entry && patientData.entry.length > 0) {
-      // FHIR Bundle format
-      patient = patientData.entry[0].resource;
-    } else {
-      // Patient not found
+    // When fetching by ID, we get a direct Patient resource or an error
+    if (patientData.resourceType !== 'Patient') {
+      // Patient not found or error
       return new Response(
         JSON.stringify({ exists: false }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+    
+    const patient: PatientResource = patientData;
     
     // Get patient name
     const fullName = patient.name?.[0]
