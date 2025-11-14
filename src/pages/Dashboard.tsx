@@ -42,6 +42,7 @@ const Dashboard = () => {
         }
 
         console.log('Dashboard - Data loaded:', insuranceData);
+        console.log('Coverage data:', insuranceData.coverageData);
 
         setUserName(insuranceData.fullName || 'Utilisateur');
         setInsuranceNumber(insuranceData.insuranceNumber || '');
@@ -50,20 +51,59 @@ const Dashboard = () => {
         if (insuranceData.coverageData && insuranceData.coverageData.entry) {
           const entries = insuranceData.coverageData.entry;
           
+          console.log('Total coverage entries:', entries.length);
+          
           if (entries.length > 0) {
             const latestCoverage = entries[0].resource;
+            console.log('Latest coverage:', latestCoverage);
             
-            // Statut de la couverture
+            // Statut de la couverture (active, draft, suspended, etc.)
             const status = latestCoverage.status || 'draft';
-            setCoverageStatus(status === 'active' ? 'active' : 'inactive');
+            const isActive = status === 'active';
+            setCoverageStatus(isActive ? 'active' : 'inactive');
             
-            // Trouver le montant à payer (ici on utilise 3000 KMF comme montant fixe pour la cotisation mensuelle)
-            // Dans un vrai système, cela viendrait d'un champ spécifique de l'API
-            setPaymentAmount('3 000');
-            setPaymentType('mensuelle');
+            // Vérifier les dates de validité
+            let coverageValid = false;
+            if (latestCoverage.period) {
+              const startDate = new Date(latestCoverage.period.start);
+              const endDate = new Date(latestCoverage.period.end);
+              const now = new Date();
+              coverageValid = now >= startDate && now <= endDate;
+              
+              console.log('Coverage period:', {
+                start: startDate,
+                end: endDate,
+                valid: coverageValid
+              });
+            }
             
-            console.log('Coverage status:', status);
+            // Le montant - chercher dans les extensions ou utiliser un montant par défaut
+            // Pour AMG Comores, la cotisation mensuelle standard est de 3000 KMF
+            let amount = '3 000';
+            let paymentFrequency = 'mensuelle';
+            
+            // Si l'API fournit un montant, l'utiliser
+            if (latestCoverage.costToBeneficiary && latestCoverage.costToBeneficiary.value) {
+              const costValue = latestCoverage.costToBeneficiary.value.value;
+              amount = new Intl.NumberFormat('fr-FR').format(costValue);
+            }
+            
+            setPaymentAmount(amount);
+            setPaymentType(paymentFrequency);
+            
+            // Déterminer si la couverture est active en fonction du statut ET de la période
+            const finalStatus = (isActive && coverageValid) ? 'active' : 'inactive';
+            setCoverageStatus(finalStatus);
+            
+            console.log('Final coverage status:', finalStatus);
+            console.log('Payment amount:', amount, 'KMF');
           }
+        } else {
+          console.log('No coverage data available');
+          // Valeurs par défaut si pas de données de couverture
+          setPaymentAmount('3 000');
+          setPaymentType('mensuelle');
+          setCoverageStatus('inactive');
         }
         
         setIsLoading(false);
