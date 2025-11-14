@@ -58,20 +58,23 @@ const Dashboard = () => {
           const contract = insuranceData.contractData.entry[0].resource;
           console.log('Contract resource found:', contract);
           
-          // Essayer term[0].offer.premium
-          if (contract.term?.[0]?.offer?.premium?.value) {
-            amount = new Intl.NumberFormat('fr-FR').format(contract.term[0].offer.premium.value);
-            console.log('Amount from contract.term.offer.premium:', amount);
+          // Essayer term[0].asset[0].extension pour trouver l'amount
+          if (contract.term?.[0]?.asset?.[0]?.extension) {
+            const premiumExtension = contract.term[0].asset[0].extension.find(
+              (ext: any) => ext.url === 'https://openimis.github.io/openimis_fhir_r4_ig/StructureDefinition/contract-premium'
+            );
+            if (premiumExtension?.extension) {
+              const amountExt = premiumExtension.extension.find((ext: any) => ext.url === 'amount');
+              if (amountExt?.valueMoney?.value) {
+                amount = new Intl.NumberFormat('fr-FR').format(amountExt.valueMoney.value);
+                console.log('Amount from contract.term.asset.extension (premium):', amount);
+              }
+            }
           }
           // Essayer term[0].asset[0].valuedItem[0].net
-          else if (contract.term?.[0]?.asset?.[0]?.valuedItem?.[0]?.net?.value) {
+          if (amount === '3 000' && contract.term?.[0]?.asset?.[0]?.valuedItem?.[0]?.net?.value) {
             amount = new Intl.NumberFormat('fr-FR').format(contract.term[0].asset[0].valuedItem[0].net.value);
             console.log('Amount from contract.term.asset.valuedItem.net:', amount);
-          }
-          // Essayer term[0].offer.answer[0].valueQuantity
-          else if (contract.term?.[0]?.offer?.answer?.[0]?.valueQuantity?.value) {
-            amount = new Intl.NumberFormat('fr-FR').format(contract.term[0].offer.answer[0].valueQuantity.value);
-            console.log('Amount from contract.term.offer.answer:', amount);
           }
         }
         
