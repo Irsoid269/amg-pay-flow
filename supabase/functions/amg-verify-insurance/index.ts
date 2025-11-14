@@ -279,22 +279,39 @@ Deno.serve(async (req) => {
             
             // Replace with selected contract
             contractData.entry = [selectedContract];
+          } else {
+            // No valid contract found even though activeContracts had entries
+            console.log(`❌ Could not select a valid contract for Group ${groupId}`);
+            contractData.entry = [];
           }
         } else {
           // Fallback: check for "Offered" status if no "Executed" found
           console.log('⚠️  No Executed contracts found, checking for Offered...');
           const offeredContracts = contractData.entry.filter((entry: any) => {
             const contract = entry.resource;
+            
+            // CRITICAL: Only check contracts belonging to THIS group
+            const contractSubject = contract.subject?.[0]?.reference;
+            const belongsToThisGroup = contractSubject === `Group/${groupId}`;
+            
+            if (!belongsToThisGroup) {
+              return false;
+            }
+            
             return contract.status?.toLowerCase() === 'offered';
           });
           
+          console.log(`Found ${offeredContracts.length} Offered (pending) contracts FOR THIS GROUP ${groupId}`);
+          
           if (offeredContracts.length > 0) {
-            console.log(`Found ${offeredContracts.length} Offered (pending) contracts`);
+            console.log(`⚠️  Group ${groupId} has OFFERED contracts (not yet active/paid)`);
             selectedContract = offeredContracts[0];
             contractData.entry = [selectedContract];
           } else {
             console.log(`❌ No active or offered contracts found for Group ${groupId}`);
-            console.log('   This may indicate the group has no valid insurance policy');
+            console.log('   This group has no valid insurance policy');
+            // CRITICAL: Clear contractData.entry so status will be inactive
+            contractData.entry = [];
           }
         }
       }
