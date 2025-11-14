@@ -18,21 +18,22 @@ const Dashboard = () => {
       try {
         console.log('Dashboard - Checking authentication...');
         
-        const { data: { user } } = await supabase.auth.getUser();
+        // Utiliser getSession au lieu de getUser pour vérifier la session
+        const { data: { session } } = await supabase.auth.getSession();
         
-        if (!user) {
-          console.log('Dashboard - No user found, redirecting to login');
+        if (!session) {
+          console.log('Dashboard - No session found, redirecting to login');
           navigate("/", { replace: true });
           return;
         }
 
-        console.log('Dashboard - User authenticated:', user.id);
+        console.log('Dashboard - Session found for user:', session.user.id);
 
         // Get profile data
         const { data: profile, error } = await supabase
           .from('profiles')
           .select('*')
-          .eq('id', user.id)
+          .eq('id', session.user.id)
           .maybeSingle();
 
         if (error) {
@@ -62,8 +63,9 @@ const Dashboard = () => {
   }, [navigate]);
 
   const handleLogout = async () => {
+    console.log('Logging out...');
     await supabase.auth.signOut();
-    navigate("/");
+    navigate("/", { replace: true });
   };
 
   if (isLoading) {
