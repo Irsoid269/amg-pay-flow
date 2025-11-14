@@ -56,26 +56,47 @@ const Dashboard = () => {
         // Stratégie 1: Essayer de récupérer depuis le Contract (FHIR Contract resource)
         if (insuranceData.contractData?.entry?.[0]?.resource) {
           const contract = insuranceData.contractData.entry[0].resource;
-          console.log('Contract resource found:', contract);
+          console.log('=== CONTRACT ANALYSIS ===');
+          console.log('Full Contract:', JSON.stringify(contract, null, 2));
           
           // Essayer term[0].asset[0].extension pour trouver l'amount
           if (contract.term?.[0]?.asset?.[0]?.extension) {
+            console.log('Contract extensions:', JSON.stringify(contract.term[0].asset[0].extension, null, 2));
+            
             const premiumExtension = contract.term[0].asset[0].extension.find(
               (ext: any) => ext.url === 'https://openimis.github.io/openimis_fhir_r4_ig/StructureDefinition/contract-premium'
             );
+            
             if (premiumExtension?.extension) {
+              console.log('Premium extension found:', JSON.stringify(premiumExtension, null, 2));
+              
+              // Chercher tous les montants possibles
+              premiumExtension.extension.forEach((ext: any) => {
+                if (ext.valueMoney) {
+                  console.log(`Found money field at ${ext.url}:`, ext.valueMoney.value);
+                }
+              });
+              
               const amountExt = premiumExtension.extension.find((ext: any) => ext.url === 'amount');
               if (amountExt?.valueMoney?.value) {
                 amount = new Intl.NumberFormat('fr-FR').format(amountExt.valueMoney.value);
-                console.log('Amount from contract.term.asset.extension (premium):', amount);
+                console.log('✓ Amount from contract.term.asset.extension (premium):', amount, 'KMF');
               }
             }
           }
+          
           // Essayer term[0].asset[0].valuedItem[0].net
-          if (amount === '3 000' && contract.term?.[0]?.asset?.[0]?.valuedItem?.[0]?.net?.value) {
-            amount = new Intl.NumberFormat('fr-FR').format(contract.term[0].asset[0].valuedItem[0].net.value);
-            console.log('Amount from contract.term.asset.valuedItem.net:', amount);
+          if (contract.term?.[0]?.asset?.[0]?.valuedItem?.[0]?.net?.value) {
+            const netAmount = contract.term[0].asset[0].valuedItem[0].net.value;
+            console.log('Found valuedItem.net.value:', netAmount, 'KMF');
+            
+            if (amount === '3 000') {
+              amount = new Intl.NumberFormat('fr-FR').format(netAmount);
+              console.log('✓ Amount from contract.term.asset.valuedItem.net:', amount, 'KMF');
+            }
           }
+          
+          console.log('=== END CONTRACT ANALYSIS ===');
         }
         
         // Stratégie 2: Essayer de récupérer depuis l'InsurancePlan (FHIR InsurancePlan resource)
@@ -100,64 +121,78 @@ const Dashboard = () => {
         
         console.log('Final payment amount:', amount, 'KMF');
         
-        // Extraire les informations de couverture depuis coverageData
-        if (insuranceData.coverageData && insuranceData.coverageData.entry) {
-          const entries = insuranceData.coverageData.entry;
+        // Extraire les informations de couverture - Utiliser le Contract.status pour déterminer le statut réel
+        let finalStatus = 'inactive';
+        let coverageValid = false;
+        
+        // Le statut réel vient du Contract, pas du Coverage
+        if (insuranceData.contractData?.entry?.[0]?.resource) {
+          const contract = insuranceData.contractData.entry[0].resource;
+          const contractStatus = contract.status; // "Offered", "Policy", "Revoked", "Rejected", etc.
           
-          console.log('Total coverage entries:', entries.length);
+          console.log('Contract status from API:', contractStatus);
           
-          if (entries.length > 0) {
-            const latestCoverage = entries[0].resource;
-            console.log('Latest coverage:', latestCoverage);
+          // Vérifier les dates de validité depuis le Contract
+          if (contract.term?.[0]?.asset?.[0]?.period?.[0]) {
+            const startDate = new Date(contract.term[0].asset[0].period[0].start);
+            const endDate = new Date(contract.term[0].asset[0].period[0].end);
+            const now = new Date();
+            coverageValid = now >= startDate && now <= endDate;
             
-            // Statut de la couverture (active, draft, suspended, cancelled, entered-in-error)
-            const apiStatus = latestCoverage.status || 'draft';
-            console.log('Coverage status from API:', apiStatus);
-            
-            // Vérifier les dates de validité
-            let coverageValid = false;
-            if (latestCoverage.period) {
-              const startDate = new Date(latestCoverage.period.start);
-              const endDate = new Date(latestCoverage.period.end);
-              const now = new Date();
-              coverageValid = now >= startDate && now <= endDate;
-              
-              console.log('Coverage period:', {
-                start: startDate,
-                end: endDate,
-                valid: coverageValid,
-                currentDate: now
-              });
-            }
-            
-            // Déterminer si la couverture est active
-            // Draft = en attente de paiement
-            // Active + dates valides = couvert
-            // Active mais dates invalides = expiré
-            let finalStatus = 'inactive';
-            let isCovered = false;
-            
-            if (apiStatus === 'active' && coverageValid) {
-              finalStatus = 'active';
-              isCovered = true;
-            } else if (apiStatus === 'draft') {
-              finalStatus = 'pending'; // En attente de paiement
-              isCovered = false;
-            } else if (apiStatus === 'active' && !coverageValid) {
-              finalStatus = 'expired';
-              isCovered = false;
-            } else if (apiStatus === 'cancelled' || apiStatus === 'suspended') {
-              finalStatus = 'cancelled';
-              isCovered = false;
-            }
-            
-            console.log('Final coverage status:', finalStatus);
-            console.log('Is covered:', isCovered);
-            
-            setCoverageStatus(finalStatus);
+            console.log('Contract period:', {
+              start: startDate,
+              end: endDate,
+              valid: coverageValid,
+              currentDate: now
+            });
           }
+          
+          // Interpréter le statut du contrat:
+          // "Offered" = Contrat proposé et actif (équivalent à "Active")
+          // "Policy" = Police active
+          // "Revoked" = Révoqué
+          // "Rejected" = Rejeté
+          if ((contractStatus === 'Offered' || contractStatus === 'Policy') && coverageValid) {
+            finalStatus = 'active';
+          } else if ((contractStatus === 'Offered' || contractStatus === 'Policy') && !coverageValid) {
+            finalStatus = 'expired';
+          } else if (contractStatus === 'Revoked' || contractStatus === 'Rejected') {
+            finalStatus = 'cancelled';
+          } else {
+            // Pour le Coverage.status = "draft", vérifier si le contrat est "Offered"
+            // Si Offered, c'est actif même si Coverage est draft
+            if (contractStatus === 'Offered' && coverageValid) {
+              finalStatus = 'active';
+            } else {
+              finalStatus = 'pending';
+            }
+          }
+          
+          console.log('Final coverage status (from Contract):', finalStatus);
+          console.log('Is covered:', finalStatus === 'active');
+          
+          setCoverageStatus(finalStatus);
+        } else if (insuranceData.coverageData?.entry?.[0]?.resource) {
+          // Fallback sur le Coverage si pas de Contract
+          const latestCoverage = insuranceData.coverageData.entry[0].resource;
+          const apiStatus = latestCoverage.status || 'draft';
+          
+          if (latestCoverage.period) {
+            const startDate = new Date(latestCoverage.period.start);
+            const endDate = new Date(latestCoverage.period.end);
+            const now = new Date();
+            coverageValid = now >= startDate && now <= endDate;
+          }
+          
+          if (apiStatus === 'active' && coverageValid) {
+            finalStatus = 'active';
+          } else if (apiStatus === 'draft') {
+            finalStatus = 'pending';
+          }
+          
+          setCoverageStatus(finalStatus);
         } else {
-          console.log('No coverage data available');
+          console.log('No coverage or contract data available');
           setCoverageStatus('inactive');
         }
         
