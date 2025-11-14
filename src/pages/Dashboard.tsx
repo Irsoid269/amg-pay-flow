@@ -152,75 +152,105 @@ const Dashboard = () => {
         
         console.log('Final payment amount:', amount, 'KMF');
         
-        // Analyser toutes les ressources pour trouver le vrai statut actif/inactif
-        console.log('=== ANALYZING ALL STATUS FIELDS ===');
+        // NOUVELLE LOGIQUE: Le statut vient de tblPolicy, mappé dans Contract.status
+        console.log('=== SEARCHING FOR tblPolicy STATUS ===');
         
         let finalStatus = 'inactive';
-        let coverageValid = false;
+        let policyActive = false;
         
-        // Analyser le Contract
+        // Fonction pour explorer récursivement et trouver des champs de statut/policy
+        const findPolicyStatus = (obj: any, path = ''): any[] => {
+          const results: any[] = [];
+          
+          if (obj === null || obj === undefined) return results;
+          
+          if (typeof obj === 'object') {
+            // Chercher les champs qui pourraient contenir le statut de la police
+            Object.keys(obj).forEach(key => {
+              const lowerKey = key.toLowerCase();
+              const value = obj[key];
+              
+              // Chercher "policy", "status", "active", "validity", "state"
+              if (lowerKey.includes('policy') || lowerKey.includes('status') || 
+                  lowerKey.includes('active') || lowerKey.includes('validity') ||
+                  lowerKey.includes('state') || lowerKey === 'status') {
+                results.push({
+                  path: path ? `${path}.${key}` : key,
+                  key,
+                  value
+                });
+              }
+              
+              // Continuer récursivement
+              const newPath = path ? `${path}.${key}` : key;
+              results.push(...findPolicyStatus(value, newPath));
+            });
+          }
+          
+          return results;
+        };
+        
+        // 1. Chercher dans Contract (tblPolicy est probablement mappé ici)
         if (insuranceData.contractData?.entry?.[0]?.resource) {
           const contract = insuranceData.contractData.entry[0].resource;
-          console.log('📋 CONTRACT STATUS ANALYSIS:');
-          console.log('  - contract.status:', contract.status);
+          console.log('📋 SEARCHING IN CONTRACT for tblPolicy mapping:');
           
-          // Vérifier tous les champs possibles pour le statut
-          if (contract.term?.[0]?.asset) {
-            contract.term[0].asset.forEach((asset: any, idx: number) => {
-              console.log(`  - asset[${idx}] typeReference:`, asset.typeReference?.map((ref: any) => ref.display));
-              
-              if (asset.period?.[0]) {
-                const startDate = new Date(asset.period[0].start);
-                const endDate = new Date(asset.period[0].end);
-                const now = new Date();
-                coverageValid = now >= startDate && now <= endDate;
-                
-                console.log(`  - asset[${idx}] period: ${asset.period[0].start} to ${asset.period[0].end}`);
-                console.log(`  - period is valid: ${coverageValid}`);
-              }
-            });
+          const contractStatuses = findPolicyStatus(contract, 'contract');
+          console.log('All status-related fields in Contract:', contractStatuses);
+          
+          // Contract.status pourrait être le statut de tblPolicy
+          // "Offered" = Police offerte/active dans tblPolicy
+          // "Rejected" = Police rejetée/inactive
+          console.log('Contract.status:', contract.status);
+          
+          // Vérifier la période de validité
+          let periodValid = false;
+          if (contract.term?.[0]?.asset?.[0]?.period?.[0]) {
+            const startDate = new Date(contract.term[0].asset[0].period[0].start);
+            const endDate = new Date(contract.term[0].asset[0].period[0].end);
+            const now = new Date();
+            periodValid = now >= startDate && now <= endDate;
+            console.log('Contract period valid:', periodValid);
+          }
+          
+          // Hypothèse: Contract.status = "Offered" + période valide = Police Active
+          if (contract.status === 'Offered' && periodValid) {
+            policyActive = true;
+            finalStatus = 'active';
+            console.log('✓ Policy is ACTIVE (Contract.status="Offered" + valid period)');
+          } else if (contract.status === 'Policy' && periodValid) {
+            policyActive = true;
+            finalStatus = 'active';
+            console.log('✓ Policy is ACTIVE (Contract.status="Policy" + valid period)');
           }
         }
         
-        // Analyser TOUS les Coverage pour trouver le bon statut
+        // 2. Chercher dans Coverage (au cas où tblPolicy est mappé ici)
         if (insuranceData.coverageData?.entry) {
-          console.log('📄 COVERAGE STATUS ANALYSIS (checking ALL entries):');
-          console.log(`  - Total entries: ${insuranceData.coverageData.entry.length}`);
+          console.log('📄 SEARCHING IN ALL COVERAGE for tblPolicy mapping:');
           
           insuranceData.coverageData.entry.forEach((entry: any, idx: number) => {
             const coverage = entry.resource;
-            const covStatus = coverage.status;
-            let covPeriodValid = false;
+            const coverageStatuses = findPolicyStatus(coverage, `coverage[${idx}]`);
             
-            if (coverage.period) {
-              const startDate = new Date(coverage.period.start);
-              const endDate = new Date(coverage.period.end);
-              const now = new Date();
-              covPeriodValid = now >= startDate && now <= endDate;
-            }
-            
-            console.log(`  - Coverage[${idx}]:`, {
-              status: covStatus,
-              period: coverage.period,
-              periodValid: covPeriodValid,
-              policyHolder: coverage.policyHolder?.reference,
-              beneficiary: coverage.beneficiary?.reference
-            });
-            
-            // Le vrai statut est "active" seulement si:
-            // 1. coverage.status === "active" (pas "draft")
-            // 2. La période est valide
-            if (covStatus === 'active' && covPeriodValid) {
-              finalStatus = 'active';
-              console.log(`  ✓ Found ACTIVE coverage at index ${idx}`);
+            if (coverageStatuses.length > 0) {
+              console.log(`Coverage[${idx}] status fields:`, coverageStatuses);
             }
           });
         }
         
-        // Si aucun Coverage n'est "active", alors l'assuré est inactif
-        console.log('=== FINAL STATUS DETERMINATION ===');
-        console.log('Final status:', finalStatus);
-        console.log('Reason: Coverage.status must be "active" (not "draft") AND period must be valid');
+        // 3. Chercher dans Patient (au cas où)
+        if (insuranceData.patientData) {
+          console.log('👤 SEARCHING IN PATIENT for tblPolicy mapping:');
+          const patientStatuses = findPolicyStatus(insuranceData.patientData, 'patient');
+          if (patientStatuses.length > 0) {
+            console.log('Patient status fields:', patientStatuses);
+          }
+        }
+        
+        console.log('=== FINAL tblPolicy STATUS ===');
+        console.log('Policy Active:', policyActive);
+        console.log('Final Status:', finalStatus);
         
         setCoverageStatus(finalStatus);
         
