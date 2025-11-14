@@ -152,107 +152,123 @@ const Dashboard = () => {
         
         console.log('Final payment amount:', amount, 'KMF');
         
-        // NOUVELLE LOGIQUE: Le statut vient de tblPolicy, mappé dans Contract.status
-        console.log('=== SEARCHING FOR tblPolicy STATUS ===');
+        // CHERCHER LES CHAMPS DE tblPolicy DANS FHIR
+        console.log('=== SEARCHING FOR tblPolicy FIELDS IN FHIR ===');
         
         let finalStatus = 'inactive';
-        let policyActive = false;
+        let policyValue = '3 000';
         
-        // Fonction pour explorer récursivement et trouver des champs de statut/policy
-        const findPolicyStatus = (obj: any, path = ''): any[] => {
+        // Fonction pour chercher des champs spécifiques de tblPolicy
+        const findPolicyFields = (obj: any, path = ''): any[] => {
           const results: any[] = [];
           
           if (obj === null || obj === undefined) return results;
           
           if (typeof obj === 'object') {
-            // Chercher les champs qui pourraient contenir le statut de la police
             Object.keys(obj).forEach(key => {
               const lowerKey = key.toLowerCase();
               const value = obj[key];
               
-              // Chercher "policy", "status", "active", "validity", "state"
-              if (lowerKey.includes('policy') || lowerKey.includes('status') || 
-                  lowerKey.includes('active') || lowerKey.includes('validity') ||
-                  lowerKey.includes('state') || lowerKey === 'status') {
-                results.push({
-                  path: path ? `${path}.${key}` : key,
-                  key,
-                  value
-                });
+              // Chercher les champs de tblPolicy
+              if (lowerKey.includes('policystatus') || lowerKey.includes('policy_status')) {
+                results.push({ path: path ? `${path}.${key}` : key, field: 'PolicyStatus', value });
+              }
+              if (lowerKey.includes('policyvalue') || lowerKey.includes('policy_value')) {
+                results.push({ path: path ? `${path}.${key}` : key, field: 'PolicyValue', value });
+              }
+              if (lowerKey.includes('policystage') || lowerKey.includes('policy_stage')) {
+                results.push({ path: path ? `${path}.${key}` : key, field: 'PolicyStage', value });
               }
               
               // Continuer récursivement
               const newPath = path ? `${path}.${key}` : key;
-              results.push(...findPolicyStatus(value, newPath));
+              results.push(...findPolicyFields(value, newPath));
             });
           }
           
           return results;
         };
         
-        // 1. Chercher dans Contract (tblPolicy est probablement mappé ici)
+        // 1. Chercher dans Contract
         if (insuranceData.contractData?.entry?.[0]?.resource) {
           const contract = insuranceData.contractData.entry[0].resource;
-          console.log('📋 SEARCHING IN CONTRACT for tblPolicy mapping:');
+          console.log('📋 Searching for tblPolicy fields in CONTRACT:');
           
-          const contractStatuses = findPolicyStatus(contract, 'contract');
-          console.log('All status-related fields in Contract:', contractStatuses);
+          const policyFields = findPolicyFields(contract, 'contract');
+          if (policyFields.length > 0) {
+            console.log('Found tblPolicy fields:', policyFields);
+          }
           
-          // Contract.status pourrait être le statut de tblPolicy
-          // "Offered" = Police offerte/active dans tblPolicy
-          // "Rejected" = Police rejetée/inactive
+          // Analyser Contract.status (pourrait être mappé depuis PolicyStatus ou PolicyStage)
           console.log('Contract.status:', contract.status);
           
-          // Vérifier la période de validité
+          // Vérifier période de validité (EffectiveDate/ExpiryDate)
           let periodValid = false;
           if (contract.term?.[0]?.asset?.[0]?.period?.[0]) {
             const startDate = new Date(contract.term[0].asset[0].period[0].start);
             const endDate = new Date(contract.term[0].asset[0].period[0].end);
             const now = new Date();
             periodValid = now >= startDate && now <= endDate;
-            console.log('Contract period valid:', periodValid);
+            console.log('Period valid:', periodValid, `(${contract.term[0].asset[0].period[0].start} to ${contract.term[0].asset[0].period[0].end})`);
           }
           
-          // Hypothèse: Contract.status = "Offered" + période valide = Police Active
+          // Logique de statut basée sur Contract.status
+          // "Offered" = Police active (PolicyStatus = valeur active dans tblPolicy)
           if (contract.status === 'Offered' && periodValid) {
-            policyActive = true;
             finalStatus = 'active';
-            console.log('✓ Policy is ACTIVE (Contract.status="Offered" + valid period)');
+            console.log('✓ Status: ACTIVE (Contract.status="Offered" + valid period)');
           } else if (contract.status === 'Policy' && periodValid) {
-            policyActive = true;
             finalStatus = 'active';
-            console.log('✓ Policy is ACTIVE (Contract.status="Policy" + valid period)');
+            console.log('✓ Status: ACTIVE (Contract.status="Policy" + valid period)');
+          } else {
+            finalStatus = 'inactive';
+            console.log('✗ Status: INACTIVE (Contract.status not active or period invalid)');
+          }
+          
+          // Chercher PolicyValue dans Contract
+          const netValue = contract.term?.[0]?.asset?.[0]?.valuedItem?.[0]?.net?.value;
+          if (netValue) {
+            console.log('Found net value:', netValue, '(could be PolicyValue from tblPolicy)');
           }
         }
         
-        // 2. Chercher dans Coverage (au cas où tblPolicy est mappé ici)
+        // 2. Chercher dans Coverage
         if (insuranceData.coverageData?.entry) {
-          console.log('📄 SEARCHING IN ALL COVERAGE for tblPolicy mapping:');
+          console.log('📄 Searching for tblPolicy fields in COVERAGE:');
           
           insuranceData.coverageData.entry.forEach((entry: any, idx: number) => {
             const coverage = entry.resource;
-            const coverageStatuses = findPolicyStatus(coverage, `coverage[${idx}]`);
+            const policyFields = findPolicyFields(coverage, `coverage[${idx}]`);
             
-            if (coverageStatuses.length > 0) {
-              console.log(`Coverage[${idx}] status fields:`, coverageStatuses);
+            if (policyFields.length > 0) {
+              console.log(`Coverage[${idx}] tblPolicy fields:`, policyFields);
             }
           });
         }
         
-        // 3. Chercher dans Patient (au cas où)
-        if (insuranceData.patientData) {
-          console.log('👤 SEARCHING IN PATIENT for tblPolicy mapping:');
-          const patientStatuses = findPolicyStatus(insuranceData.patientData, 'patient');
-          if (patientStatuses.length > 0) {
-            console.log('Patient status fields:', patientStatuses);
-          }
+        // 3. Chercher dans InsurancePlan
+        if (insuranceData.insurancePlanData?.entry) {
+          console.log('📦 Searching for tblPolicy fields in INSURANCE PLAN:');
+          
+          insuranceData.insurancePlanData.entry.forEach((entry: any, idx: number) => {
+            const plan = entry.resource;
+            const policyFields = findPolicyFields(plan, `plan[${idx}]`);
+            
+            if (policyFields.length > 0) {
+              console.log(`Plan[${idx}] tblPolicy fields:`, policyFields);
+            }
+          });
         }
         
-        console.log('=== FINAL tblPolicy STATUS ===');
-        console.log('Policy Active:', policyActive);
-        console.log('Final Status:', finalStatus);
+        console.log('=== FINAL RESULTS ===');
+        console.log('Final status:', finalStatus);
+        console.log('Note: If PolicyStatus/PolicyValue/PolicyStage not found in FHIR, they may not be exposed by the API');
         
         setCoverageStatus(finalStatus);
+        
+        // Utiliser le montant déjà trouvé (premium)
+        setPaymentAmount(amount);
+        setPaymentType(paymentFrequency);
         
         setIsLoading(false);
       } catch (error) {
