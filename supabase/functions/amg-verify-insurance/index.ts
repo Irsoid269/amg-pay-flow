@@ -142,18 +142,19 @@ Deno.serve(async (req) => {
     
     console.log('Patient belongs to Group:', groupId);
 
-    // Step 4: PAGINATION - Parcourir TOUS les contrats
+    // Step 4: PAGINATION LIMITÉE - Parcourir les contrats récents (timeout à 20 pages max)
     console.log(`\n🔍 Starting pagination to find contract for Group ${groupId}...`);
     
     let selectedContract = null;
-    let currentUrl: string | null = `https://dev.amg.km/api/api_fhir_r4/Contract/?_count=500&_sort=-_lastUpdated`;
+    let currentUrl: string | null = `https://dev.amg.km/api/api_fhir_r4/Contract/?_count=1000&_sort=-_lastUpdated`;
     let pageNumber = 1;
     let totalContractsScanned = 0;
     let totalContracts = 0;
     let foundGroupContract = false;
+    const MAX_PAGES = 20; // Limite à 20 pages (20,000 contrats) pour éviter timeout
     
-    while (currentUrl && !foundGroupContract) {
-      console.log(`\n📄 Page ${pageNumber}: Fetching contracts...`);
+    while (currentUrl && !foundGroupContract && pageNumber <= MAX_PAGES) {
+      console.log(`\n📄 Page ${pageNumber}/${MAX_PAGES}: Fetching contracts...`);
       
       const contractResponse: Response = await fetch(currentUrl, {
         method: 'GET',
@@ -174,7 +175,7 @@ Deno.serve(async (req) => {
       totalContracts = contractData.total || 0;
       
       console.log(`✅ Page ${pageNumber}: Retrieved ${contractsInPage} contracts`);
-      console.log(`📊 Progress: ${totalContractsScanned} / ${totalContracts} scanned`);
+      console.log(`📊 Progress: ${totalContractsScanned} / ${totalContracts} (${Math.round(totalContractsScanned/totalContracts*100)}%)`);
       
       // Search for active contracts in this page
       if (contractData.entry && contractData.entry.length > 0) {
@@ -226,12 +227,11 @@ Deno.serve(async (req) => {
         console.log(`📍 Reached end of pagination`);
         currentUrl = null;
       }
-      
-      // Safety limit
-      if (pageNumber > 70) {
-        console.log(`⚠️ Stopping after 70 pages`);
-        break;
-      }
+    }
+    
+    if (pageNumber > MAX_PAGES) {
+      console.log(`⚠️ Reached page limit (${MAX_PAGES} pages, ${totalContractsScanned} contracts scanned)`);
+      console.log(`   Contract may exist but wasn't found in recent contracts`);
     }
     
     console.log(`\n📊 Pagination complete: Scanned ${totalContractsScanned} / ${totalContracts} contracts`);
