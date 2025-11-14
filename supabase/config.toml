@@ -1,1 +1,4 @@
 project_id = "gmlvosodlnhllqbxtoum"
+
+[functions.amg-verify-insurance]
+verify_jwt = false
