@@ -100,14 +100,22 @@ Deno.serve(async (req) => {
     console.log('Patient data:', patientData);
 
     // Check if patient exists
-    if (!patientData.entry || patientData.entry.length === 0) {
+    // The API can return either a FHIR Bundle with entry or a direct Patient resource
+    let patient: PatientResource;
+    
+    if (patientData.resourceType === 'Patient') {
+      // Direct patient resource
+      patient = patientData;
+    } else if (patientData.entry && patientData.entry.length > 0) {
+      // FHIR Bundle format
+      patient = patientData.entry[0].resource;
+    } else {
+      // Patient not found
       return new Response(
         JSON.stringify({ exists: false }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-
-    const patient: PatientResource = patientData.entry[0].resource;
     
     // Get patient name
     const fullName = patient.name?.[0]
