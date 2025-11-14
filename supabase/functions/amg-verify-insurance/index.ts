@@ -1,4 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -32,19 +32,64 @@ Deno.serve(async (req) => {
 
     console.log('Verifying insurance number:', insuranceNumber);
 
-    // Call AMG API to search for patient with this insurance number
+    const username = Deno.env.get('AMG_API_USERNAME');
+    const password = Deno.env.get('AMG_API_PASSWORD');
+
+    if (!username || !password) {
+      console.error('AMG API credentials not configured');
+      return new Response(
+        JSON.stringify({ error: 'API credentials not configured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Step 1: Login to get auth token
+    console.log('Authenticating with AMG API...');
+    const loginResponse = await fetch('https://dev.amg.km/api/api_fhir_r4/login/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (!loginResponse.ok) {
+      const errorText = await loginResponse.text();
+      console.error('AMG login failed:', loginResponse.status, errorText);
+      return new Response(
+        JSON.stringify({ error: 'Authentication failed' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const loginData = await loginResponse.json();
+    const authToken = loginData.token || loginData.access_token;
+
+    if (!authToken) {
+      console.error('No auth token received from login');
+      return new Response(
+        JSON.stringify({ error: 'Authentication failed - no token' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('Authentication successful, searching for patient...');
+
+    // Step 2: Search for patient with auth token
     const patientResponse = await fetch(
       `https://dev.amg.km/api/api_fhir_r4/Patient/?identifier=${insuranceNumber}`,
       {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
         },
       }
     );
 
     if (!patientResponse.ok) {
-      console.error('AMG API error:', patientResponse.status);
+      const errorText = await patientResponse.text();
+      console.error('Patient search failed:', patientResponse.status, errorText);
       return new Response(
         JSON.stringify({ error: 'Failed to verify insurance number' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -69,13 +114,14 @@ Deno.serve(async (req) => {
       ? `${patient.name[0].given?.join(' ') || ''} ${patient.name[0].family || ''}`.trim()
       : '';
 
-    // Get coverage information
+    // Step 3: Get coverage information with auth token
     const coverageResponse = await fetch(
       `https://dev.amg.km/api/api_fhir_r4/Coverage/?beneficiary=Patient/${patient.id}`,
       {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
         },
       }
     );
@@ -83,6 +129,9 @@ Deno.serve(async (req) => {
     let coverageData = null;
     if (coverageResponse.ok) {
       coverageData = await coverageResponse.json();
+      console.log('Coverage data retrieved successfully');
+    } else {
+      console.log('Coverage data not available:', coverageResponse.status);
     }
 
     return new Response(
