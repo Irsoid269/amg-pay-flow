@@ -142,11 +142,56 @@ Deno.serve(async (req) => {
       console.log('Coverage data not available:', coverageResponse.status);
     }
 
+    // Step 4: Get contract/policy information to retrieve payment amount
+    const contractResponse = await fetch(
+      `https://dev.amg.km/api/api_fhir_r4/Contract/?subject=Patient/${patient.id}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+      }
+    );
+
+    let contractData = null;
+    if (contractResponse.ok) {
+      contractData = await contractResponse.json();
+      console.log('Contract data retrieved successfully');
+    } else {
+      console.log('Contract data not available:', contractResponse.status);
+    }
+
+    // Step 5: Get insurance plan information
+    let insurancePlanData = null;
+    if (coverageData?.entry?.[0]?.resource?.class?.[0]?.value) {
+      const planName = coverageData.entry[0].resource.class[0].value;
+      const insurancePlanResponse = await fetch(
+        `https://dev.amg.km/api/api_fhir_r4/InsurancePlan/?name=${planName}`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+          },
+        }
+      );
+
+      if (insurancePlanResponse.ok) {
+        insurancePlanData = await insurancePlanResponse.json();
+        console.log('Insurance plan data retrieved successfully');
+      } else {
+        console.log('Insurance plan data not available:', insurancePlanResponse.status);
+      }
+    }
+
     return new Response(
       JSON.stringify({
         exists: true,
         patientData: patient,
         coverageData,
+        contractData,
+        insurancePlanData,
         fullName,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
