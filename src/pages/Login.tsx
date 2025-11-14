@@ -65,6 +65,8 @@ const Login = () => {
         fullName: data.fullName,
         patientData: data.patientData,
         coverageData: data.coverageData,
+        contractData: data.contractData,
+        insurancePlanData: data.insurancePlanData,
         timestamp: Date.now(),
       }));
 
