@@ -16,18 +16,17 @@ const Dashboard = () => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        // Attendre que la session soit complètement établie
-        await new Promise(resolve => setTimeout(resolve, 100));
+        console.log('Dashboard - Checking authentication...');
         
         const { data: { user } } = await supabase.auth.getUser();
         
         if (!user) {
-          console.log('No user found, redirecting to login');
-          navigate("/");
+          console.log('Dashboard - No user found, redirecting to login');
+          navigate("/", { replace: true });
           return;
         }
 
-        console.log('User authenticated:', user.id);
+        console.log('Dashboard - User authenticated:', user.id);
 
         // Get profile data
         const { data: profile, error } = await supabase
@@ -37,47 +36,29 @@ const Dashboard = () => {
           .maybeSingle();
 
         if (error) {
-          console.error('Error fetching profile:', error);
+          console.error('Dashboard - Error fetching profile:', error);
           toast({
             title: "Erreur",
             description: "Impossible de charger vos informations",
             variant: "destructive",
           });
         } else if (profile) {
-          console.log('Profile loaded:', profile);
+          console.log('Dashboard - Profile loaded successfully');
           setUserName(profile.full_name || "Utilisateur");
           setInsuranceNumber(profile.insurance_number);
         } else {
-          console.log('No profile found for user');
+          console.log('Dashboard - No profile found for user');
         }
-      } catch (error) {
-        console.error('Auth check error:', error);
-        toast({
-          title: "Erreur",
-          description: "Erreur de connexion",
-          variant: "destructive",
-        });
-        navigate("/");
-      } finally {
+        
         setIsLoading(false);
+      } catch (error) {
+        console.error('Dashboard - Auth check error:', error);
+        setIsLoading(false);
+        navigate("/", { replace: true });
       }
     };
 
-    // Set a timeout to prevent infinite loading
-    const timeout = setTimeout(() => {
-      console.error('Auth check timeout');
-      setIsLoading(false);
-      toast({
-        title: "Timeout",
-        description: "Délai d'attente dépassé",
-        variant: "destructive",
-      });
-      navigate("/");
-    }, 10000);
-
-    checkAuth().then(() => clearTimeout(timeout));
-
-    return () => clearTimeout(timeout);
+    checkAuth();
   }, [navigate]);
 
   const handleLogout = async () => {

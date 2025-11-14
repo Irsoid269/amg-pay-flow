@@ -117,15 +117,16 @@ const Login = () => {
         }
       }
 
+      console.log('Login successful, session created');
+      
       toast({
         title: "Connexion réussie",
         description: `Bienvenue ${data.fullName}`,
       });
 
-      // Attendre un court instant pour que la session soit établie
-      setTimeout(() => {
-        navigate("/dashboard");
-      }, 500);
+      // Navigation immédiate avec replace pour éviter les boucles
+      console.log('Navigating to dashboard...');
+      navigate("/dashboard", { replace: true });
     } catch (error) {
       console.error('Login error:', error);
       toast({
