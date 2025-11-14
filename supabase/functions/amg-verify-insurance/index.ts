@@ -194,6 +194,17 @@ Deno.serve(async (req) => {
         
         const activeContracts = contractData.entry.filter((entry: any) => {
           const contract = entry.resource;
+          
+          // CRITICAL: Verify this contract belongs to THIS group
+          // The API returns all contracts, we must filter by subject
+          const contractSubject = contract.subject?.[0]?.reference;
+          const belongsToThisGroup = contractSubject === `Group/${groupId}`;
+          
+          if (!belongsToThisGroup) {
+            // Skip contracts that don't belong to this group
+            return false;
+          }
+          
           const period = contract.term?.[0]?.asset?.[0]?.period?.[0];
           
           // Check period validity
@@ -225,9 +236,9 @@ Deno.serve(async (req) => {
           // In AMG system: Contract is ACTIVE if period is valid AND payment exists
           const isActive = periodValid && hasPayment;
           
-          if (periodValid || hasPayment) {
+          if (belongsToThisGroup && (periodValid || hasPayment)) {
             const contractId = contract.identifier?.[1]?.value || contract.identifier?.[0]?.value;
-            console.log(`✓ Contract ${contractId}:`);
+            console.log(`✓ Contract ${contractId} for Group ${groupId}:`);
             console.log(`   Period: ${period?.start} to ${period?.end} (valid: ${periodValid})`);
             console.log(`   Payment receipt: ${receiptInfo || 'none'}`);
             console.log(`   → STATUS: ${isActive ? 'ACTIVE ✅' : 'INACTIVE ❌'}`);
