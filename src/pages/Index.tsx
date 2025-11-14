@@ -9,15 +9,20 @@ const Index = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      // Clear old localStorage
-      localStorage.removeItem("insuranceNumber");
-      
-      // Check if user is already logged in with Supabase
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (session) {
-        navigate("/dashboard");
-      } else {
+      try {
+        // Check if user is already logged in with Supabase
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        console.log('Index - Session check:', session ? 'Logged in' : 'Not logged in');
+        
+        if (session) {
+          console.log('Index - Redirecting to dashboard');
+          navigate("/dashboard", { replace: true });
+        } else {
+          setIsChecking(false);
+        }
+      } catch (error) {
+        console.error('Index - Auth check error:', error);
         setIsChecking(false);
       }
     };
@@ -28,7 +33,7 @@ const Index = () => {
   if (isChecking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-secondary">
-        <p className="text-muted-foreground">Chargement...</p>
+        <p className="text-muted-foreground">Vérification...</p>
       </div>
     );
   }
