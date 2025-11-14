@@ -147,6 +147,8 @@ Deno.serve(async (req) => {
     }
 
     // Step 4: Get contract/policy information to retrieve payment amount
+    // Note: Contracts are linked to Groups, not directly to Patients
+    // We need to find the contract that contains this specific patient
     const contractResponse = await fetch(
       `https://dev.amg.km/api/api_fhir_r4/Contract/?subject=Patient/${patient.id}`,
       {
@@ -159,10 +161,80 @@ Deno.serve(async (req) => {
     );
 
     let contractData = null;
+    let selectedContract = null;
+    
     if (contractResponse.ok) {
       contractData = await contractResponse.json();
       console.log('Contract data retrieved successfully');
-      console.log('Contract details:', JSON.stringify(contractData, null, 2));
+      console.log(`Total contracts found: ${contractData.total || 0}`);
+      
+      // Analyze all contracts to find the one for this specific patient
+      if (contractData.entry && contractData.entry.length > 0) {
+        console.log(`Analyzing ${contractData.entry.length} contracts...`);
+        
+        // Filter contracts that contain this patient in their typeReference
+        const relevantContracts = contractData.entry.filter((entry: any) => {
+          const contract = entry.resource;
+          const typeReferences = contract.term?.[0]?.asset?.[0]?.typeReference || [];
+          
+          // Check if this patient is in the typeReference list
+          const hasPatient = typeReferences.some((ref: any) => 
+            ref.display === patient.id || ref.identifier?.value === patient.id
+          );
+          
+          if (hasPatient) {
+            console.log(`✓ Found contract ${contract.identifier?.[1]?.value} with status: ${contract.status}`);
+          }
+          
+          return hasPatient;
+        });
+        
+        console.log(`Found ${relevantContracts.length} relevant contracts for patient ${patient.id}`);
+        
+        if (relevantContracts.length > 0) {
+          // Priority: Executed > Offered > others
+          // Also prefer the most recent one
+          selectedContract = relevantContracts.reduce((best: any, current: any) => {
+            const currentContract = current.resource;
+            const bestContract = best?.resource;
+            
+            if (!best) return current;
+            
+            const currentStatus = currentContract.status?.toLowerCase();
+            const bestStatus = bestContract.status?.toLowerCase();
+            
+            // Executed is the highest priority (actual active coverage)
+            if (currentStatus === 'executed' && bestStatus !== 'executed') {
+              return current;
+            }
+            if (bestStatus === 'executed' && currentStatus !== 'executed') {
+              return best;
+            }
+            
+            // If both have same status priority, prefer the most recent (by date in extension)
+            const currentDate = currentContract.term?.[0]?.asset?.[0]?.period?.[0]?.start;
+            const bestDate = bestContract.term?.[0]?.asset?.[0]?.period?.[0]?.start;
+            
+            if (currentDate && bestDate && currentDate > bestDate) {
+              return current;
+            }
+            
+            return best;
+          }, null);
+          
+          if (selectedContract) {
+            const contract = selectedContract.resource;
+            console.log(`✅ Selected contract: ${contract.identifier?.[1]?.value}`);
+            console.log(`   Status: ${contract.status}`);
+            console.log(`   Period: ${contract.term?.[0]?.asset?.[0]?.period?.[0]?.start} to ${contract.term?.[0]?.asset?.[0]?.period?.[0]?.end}`);
+            
+            // Replace the first entry with the selected contract
+            contractData.entry = [selectedContract];
+          }
+        } else {
+          console.log('⚠️  No contracts found that specifically reference this patient');
+        }
+      }
     } else {
       console.log('Contract data not available:', contractResponse.status);
     }
