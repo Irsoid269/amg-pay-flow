@@ -315,6 +315,17 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Determine coverage status based on whether we found an active contract
+    const hasActiveContract = contractData?.entry?.length > 0;
+    const coverageStatus = hasActiveContract ? 'active' : 'inactive';
+    
+    console.log(`📊 Final coverage status for ${insuranceNumber}: ${coverageStatus.toUpperCase()}`);
+    if (hasActiveContract) {
+      console.log('   ✅ Patient has active insurance coverage');
+    } else {
+      console.log('   ❌ Patient has no active insurance coverage');
+    }
+
     return new Response(
       JSON.stringify({
         exists: true,
@@ -323,6 +334,7 @@ Deno.serve(async (req) => {
         contractData,
         insurancePlanData,
         fullName,
+        coverageStatus, // Add status determined by edge function
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
