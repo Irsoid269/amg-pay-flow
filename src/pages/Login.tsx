@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,15 @@ const Login = () => {
   const [insuranceNumber, setInsuranceNumber] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // Force logout on mount to clear any stuck sessions
+    const clearSession = async () => {
+      await supabase.auth.signOut();
+      localStorage.clear();
+    };
+    clearSession();
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
