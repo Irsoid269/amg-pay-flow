@@ -16,12 +16,18 @@ const Dashboard = () => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
+        // Attendre que la session soit complètement établie
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         const { data: { user } } = await supabase.auth.getUser();
         
         if (!user) {
+          console.log('No user found, redirecting to login');
           navigate("/");
           return;
         }
+
+        console.log('User authenticated:', user.id);
 
         // Get profile data
         const { data: profile, error } = await supabase
@@ -38,8 +44,11 @@ const Dashboard = () => {
             variant: "destructive",
           });
         } else if (profile) {
+          console.log('Profile loaded:', profile);
           setUserName(profile.full_name || "Utilisateur");
           setInsuranceNumber(profile.insurance_number);
+        } else {
+          console.log('No profile found for user');
         }
       } catch (error) {
         console.error('Auth check error:', error);
@@ -58,6 +67,11 @@ const Dashboard = () => {
     const timeout = setTimeout(() => {
       console.error('Auth check timeout');
       setIsLoading(false);
+      toast({
+        title: "Timeout",
+        description: "Délai d'attente dépassé",
+        variant: "destructive",
+      });
       navigate("/");
     }, 10000);
 
