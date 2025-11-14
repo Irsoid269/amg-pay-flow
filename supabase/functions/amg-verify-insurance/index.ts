@@ -183,6 +183,7 @@ Deno.serve(async (req) => {
       contractData = await contractResponse.json();
       console.log('Contract data retrieved successfully');
       console.log(`Total contracts found for ${groupId ? 'Group' : 'Patient'}: ${contractData.total || 0}`);
+      console.log(`Number of contract entries in response: ${contractData.entry?.length || 0}`);
       
       // Analyze contracts to find the active/executed one for this group
       if (contractData.entry && contractData.entry.length > 0) {
@@ -314,9 +315,14 @@ Deno.serve(async (req) => {
             contractData.entry = [];
           }
         }
+      } else {
+        console.log(`⚠️  No contract entries found in API response for ${groupId ? 'Group' : 'Patient'} ${groupId || patient.id}`);
+        console.log(`   contractData structure:`, JSON.stringify(contractData, null, 2).substring(0, 500));
       }
     } else {
-      console.log('Contract data not available:', contractResponse.status);
+      console.log(`❌ Contract API request failed with status: ${contractResponse.status}`);
+      const errorText = await contractResponse.text();
+      console.log(`   Error response: ${errorText.substring(0, 200)}`);
     }
 
     // Step 5: Get insurance plan information
