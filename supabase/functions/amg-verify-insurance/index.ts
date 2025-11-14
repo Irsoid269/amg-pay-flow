@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
 
     console.log('Authentication successful, searching for patient...');
 
-    // Step 2: Get patient directly by ID (insurance number is the patient ID)
+    // Step 2: Get patient directly by ID
     const patientResponse = await fetch(
       `https://dev.amg.km/api/api_fhir_r4/Patient/${insuranceNumber}`,
       {
@@ -91,7 +91,6 @@ Deno.serve(async (req) => {
       const errorText = await patientResponse.text();
       console.error('Patient search failed:', patientResponse.status, errorText);
       
-      // If patient not found (404), return exists: false instead of error
       if (patientResponse.status === 404) {
         return new Response(
           JSON.stringify({ exists: false }),
@@ -99,7 +98,6 @@ Deno.serve(async (req) => {
         );
       }
       
-      // For other errors, return 500
       return new Response(
         JSON.stringify({ error: 'Failed to verify insurance number' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -109,24 +107,16 @@ Deno.serve(async (req) => {
     const patientData = await patientResponse.json();
     console.log('Patient data:', patientData);
 
-    // Check if patient exists
-    // When fetching by ID, we get a direct Patient resource or an error
     if (patientData.resourceType !== 'Patient') {
-      // Patient not found or error
       return new Response(
         JSON.stringify({ exists: false }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    
-    const patient: PatientResource = patientData;
-    
-    // Get patient name
-    const fullName = patient.name?.[0]
-      ? `${patient.name[0].given?.join(' ') || ''} ${patient.name[0].family || ''}`.trim()
-      : '';
 
-    // Step 3: Get coverage information with auth token
+    const patient: PatientResource = patientData;
+
+    // Step 3: Get coverage information
     const coverageResponse = await fetch(
       `https://dev.amg.km/api/api_fhir_r4/Coverage/?beneficiary=Patient/${patient.id}`,
       {
@@ -142,39 +132,30 @@ Deno.serve(async (req) => {
     if (coverageResponse.ok) {
       coverageData = await coverageResponse.json();
       console.log('Coverage data retrieved successfully');
-    } else {
-      console.log('Coverage data not available:', coverageResponse.status);
     }
 
-    // Step 4: Get contract/policy information to retrieve payment amount
-    // IMPORTANT: Contracts in openIMIS are linked to GROUPS (families), not individual patients
-    // We need to get the patient's group first, then find the contract for that group
+    // Extract Group/Family ID
+    const groupExtension = patient.extension?.find(
+      (ext: any) => ext.url === 'https://openimis.github.io/openimis_fhir_r4_ig/StructureDefinition/patient-group-reference'
+    );
+    const groupId = groupExtension?.valueReference?.identifier?.value;
     
-    // Extract the group reference from patient data
-    const groupRef = patient.extension?.find((ext: any) => 
-      ext.url === 'https://openimis.github.io/openimis_fhir_r4_ig/StructureDefinition/patient-group-reference'
-    )?.valueReference;
-    
-    const groupId = groupRef?.reference?.split('/')[1] || groupRef?.identifier?.value;
-    
-    console.log(`Patient belongs to Group: ${groupId}`);
-    
-    // Query contracts by Group with sorting and increased page size
-    // IMPORTANT: Implémenter une pagination automatique pour parcourir TOUS les contrats
-    // jusqu'à trouver celui de la famille, peu importe le nombre total de contrats
-    console.log(`🔍 Starting pagination to find contract for Group ${groupId}...`);
+    console.log('Patient belongs to Group:', groupId);
+
+    // Step 4: PAGINATION - Parcourir TOUS les contrats
+    console.log(`\n🔍 Starting pagination to find contract for Group ${groupId}...`);
     
     let selectedContract = null;
-    let currentUrl = `https://dev.amg.km/api/api_fhir_r4/Contract/?_count=500&_sort=-_lastUpdated`;
+    let currentUrl: string | null = `https://dev.amg.km/api/api_fhir_r4/Contract/?_count=500&_sort=-_lastUpdated`;
     let pageNumber = 1;
     let totalContractsScanned = 0;
+    let totalContracts = 0;
     let foundGroupContract = false;
     
-    // Pagination loop: Continue jusqu'à trouver le contrat ou avoir parcouru tous les contrats
     while (currentUrl && !foundGroupContract) {
-      console.log(`\n📄 Page ${pageNumber}: Fetching contracts from API...`);
+      console.log(`\n📄 Page ${pageNumber}: Fetching contracts...`);
       
-      const contractResponse = await fetch(currentUrl, {
+      const contractResponse: Response = await fetch(currentUrl, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -183,51 +164,29 @@ Deno.serve(async (req) => {
       });
       
       if (!contractResponse.ok) {
-        console.log(`❌ Contract API request failed with status: ${contractResponse.status}`);
-        const errorText = await contractResponse.text();
-        console.log(`   Error response: ${errorText.substring(0, 200)}`);
+        console.log(`❌ Contract API request failed: ${contractResponse.status}`);
         break;
       }
       
-      const contractData = await contractResponse.json();
+      const contractData: any = await contractResponse.json();
       const contractsInPage = contractData.entry?.length || 0;
       totalContractsScanned += contractsInPage;
+      totalContracts = contractData.total || 0;
       
       console.log(`✅ Page ${pageNumber}: Retrieved ${contractsInPage} contracts`);
-      console.log(`📊 Total scanned so far: ${totalContractsScanned} / ${contractData.total || 0}`);
-      console.log(`🎯 Searching for Group: ${groupId}`);
+      console.log(`📊 Progress: ${totalContractsScanned} / ${totalContracts} scanned`);
       
-      // Analyze contracts in this page to find the active one for this group
+      // Search for active contracts in this page
       if (contractData.entry && contractData.entry.length > 0) {
-        
-        // Count contracts for this group in this page
-        let groupContractsInPage = 0;
-        contractData.entry.forEach((entry: any) => {
-          const contractSubject = entry.resource?.subject?.[0]?.reference || '';
-          if (contractSubject.includes(groupId)) {
-            groupContractsInPage++;
-          }
-        });
-        
-        console.log(`   → Found ${groupContractsInPage} contracts for Group ${groupId} in this page`);
-        
-        // Search for active contracts in this page
         const activeContracts = contractData.entry.filter((entry: any) => {
           const contract = entry.resource;
-          
-          // CRITICAL: Verify this contract belongs to THIS group
-          // Check if the subject contains the groupId in any format
           const contractSubject = contract.subject?.[0]?.reference || '';
-          const belongsToThisGroup = contractSubject.includes(groupId);
           
-          if (!belongsToThisGroup) {
-            // Skip contracts that don't belong to this group
+          if (!contractSubject.includes(groupId)) {
             return false;
           }
           
           const period = contract.term?.[0]?.asset?.[0]?.period?.[0];
-          
-          // Check period validity
           let periodValid = false;
           if (period) {
             const now = new Date();
@@ -236,115 +195,50 @@ Deno.serve(async (req) => {
             periodValid = now >= start && now <= end;
           }
           
-          // Check for payment receipt in contract-premium extension
-          // If there's a receipt, it means the contract has been paid and is active
           let hasPayment = false;
-          let receiptInfo = null;
-          
           const premiumExt = contract.term?.[0]?.asset?.[0]?.extension?.find(
             (ext: any) => ext.url === 'https://openimis.github.io/openimis_fhir_r4_ig/StructureDefinition/contract-premium'
           );
-          
           if (premiumExt?.extension) {
             const receiptExt = premiumExt.extension.find((ext: any) => ext.url === 'receipt');
             if (receiptExt?.valueString) {
               hasPayment = true;
-              receiptInfo = receiptExt.valueString;
             }
           }
           
-          // In AMG system: Contract is ACTIVE if period is valid AND payment exists
-          const isActive = periodValid && hasPayment;
-          
-          if (belongsToThisGroup && (periodValid || hasPayment)) {
-            const contractId = contract.identifier?.[1]?.value || contract.identifier?.[0]?.value;
-            console.log(`✓ Contract ${contractId} for Group ${groupId}:`);
-            console.log(`   Period: ${period?.start} to ${period?.end} (valid: ${periodValid})`);
-            console.log(`   Payment receipt: ${receiptInfo || 'none'}`);
-            console.log(`   → STATUS: ${isActive ? 'ACTIVE ✅' : 'INACTIVE ❌'}`);
-          }
-          
-          return isActive;
+          return periodValid && hasPayment;
         });
         
-        console.log(`Found ${activeContracts.length} ACTIVE (Executed) contracts for Group ${groupId}`);
-        
         if (activeContracts.length > 0) {
-          // Take the most recent active contract
-          selectedContract = activeContracts.reduce((best: any, current: any) => {
-            const currentContract = current.resource;
-            const bestContract = best?.resource;
-            
-            if (!best) return current;
-            
-            // Prefer the most recent (by period start date)
-            const currentDate = currentContract.term?.[0]?.asset?.[0]?.period?.[0]?.start;
-            const bestDate = bestContract.term?.[0]?.asset?.[0]?.period?.[0]?.start;
-            
-            if (currentDate && bestDate && currentDate > bestDate) {
-              console.log(`   Preferring more recent contract: ${currentDate} vs ${bestDate}`);
-              return current;
-            }
-            
-            return best;
-          }, null);
-          
-          if (selectedContract) {
-            const contract = selectedContract.resource;
-            console.log(`✅ Selected ACTIVE contract for Group ${groupId}:`);
-            console.log(`   Contract ID: ${contract.identifier?.[1]?.value || contract.identifier?.[0]?.value}`);
-            console.log(`   Status: ${contract.status} (ACTIVE)`);
-            console.log(`   Period: ${contract.term?.[0]?.asset?.[0]?.period?.[0]?.start} to ${contract.term?.[0]?.asset?.[0]?.period?.[0]?.end}`);
-            console.log(`   Patient ${patient.id} is covered as member of Group ${groupId}`);
-            
-            // Replace with selected contract
-            contractData.entry = [selectedContract];
-          } else {
-            // No valid contract found even though activeContracts had entries
-            console.log(`❌ Could not select a valid contract for Group ${groupId}`);
-            contractData.entry = [];
-          }
-        } else {
-          // Fallback: check for "Offered" status if no "Executed" found
-          console.log('⚠️  No Executed contracts found, checking for Offered...');
-          const offeredContracts = contractData.entry.filter((entry: any) => {
-            const contract = entry.resource;
-            
-            // CRITICAL: Only check contracts belonging to THIS group
-            const contractSubject = contract.subject?.[0]?.reference || '';
-            const belongsToThisGroup = contractSubject.includes(groupId);
-            
-            if (!belongsToThisGroup) {
-              return false;
-            }
-            
-            return contract.status?.toLowerCase() === 'offered';
-          });
-          
-          console.log(`Found ${offeredContracts.length} Offered (pending) contracts FOR THIS GROUP ${groupId}`);
-          
-          if (offeredContracts.length > 0) {
-            console.log(`⚠️  Group ${groupId} has OFFERED contracts (not yet active/paid)`);
-            selectedContract = offeredContracts[0];
-            contractData.entry = [selectedContract];
-          } else {
-            console.log(`❌ No active or offered contracts found for Group ${groupId}`);
-            console.log('   This group has no valid insurance policy');
-            // CRITICAL: Clear contractData.entry so status will be inactive
-            contractData.entry = [];
-          }
+          console.log(`✅ FOUND ${activeContracts.length} active contract(s) for Group ${groupId}!`);
+          selectedContract = activeContracts[0];
+          foundGroupContract = true;
+          break;
         }
-      } else {
-        console.log(`⚠️  No contract entries found in API response for ${groupId ? 'Group' : 'Patient'} ${groupId || patient.id}`);
-        console.log(`   contractData structure:`, JSON.stringify(contractData, null, 2).substring(0, 500));
       }
-    } else {
-      console.log(`❌ Contract API request failed with status: ${contractResponse.status}`);
-      const errorText = await contractResponse.text();
-      console.log(`   Error response: ${errorText.substring(0, 200)}`);
+      
+      // Get next page URL
+      const nextLink: any = contractData.link?.find((link: any) => link.relation === 'next');
+      if (nextLink) {
+        currentUrl = decodeURIComponent(nextLink.url).replace(/^https%3A%2F%2F/, 'https://');
+        pageNumber++;
+      } else {
+        console.log(`📍 Reached end of pagination`);
+        currentUrl = null;
+      }
+      
+      // Safety limit
+      if (pageNumber > 70) {
+        console.log(`⚠️ Stopping after 70 pages`);
+        break;
+      }
     }
+    
+    console.log(`\n📊 Pagination complete: Scanned ${totalContractsScanned} / ${totalContracts} contracts`);
+    
+    const contractDataForResponse = selectedContract ? { entry: [selectedContract] } : { entry: [] };
 
-    // Step 5: Get insurance plan information
+    // Step 5: Get insurance plan
     let insurancePlanData = null;
     if (coverageData?.entry?.[0]?.resource?.class?.[0]?.value) {
       const planName = coverageData.entry[0].resource.class[0].value;
@@ -362,60 +256,53 @@ Deno.serve(async (req) => {
       if (insurancePlanResponse.ok) {
         insurancePlanData = await insurancePlanResponse.json();
         console.log('Insurance plan data retrieved successfully');
-        console.log('Insurance plan details:', JSON.stringify(insurancePlanData, null, 2));
-      } else {
-        console.log('Insurance plan data not available:', insurancePlanResponse.status);
       }
     }
 
-    // Determine coverage status based on GROUP/FAMILY contract status
-    // In AMG system: ALL members of a family are covered if the FAMILY has an active contract
-    // Individual patient status doesn't matter - it's the FAMILY's contract that determines coverage
+    // Determine coverage status
+    console.log('\n=== DETERMINING COVERAGE STATUS FOR PATIENT', patient.id, '===');
+    
     let coverageStatus = 'inactive';
     
-    console.log(`\n=== DETERMINING COVERAGE STATUS FOR PATIENT ${insuranceNumber} ===`);
-    console.log(`Patient belongs to Group/Family: ${groupId}`);
-    
-    // Check if the GROUP/FAMILY has an active contract
-    const familyHasActiveContract = contractData?.entry?.length > 0;
-    
-    if (familyHasActiveContract) {
-      const contract = contractData.entry[0].resource;
-      const contractId = contract.identifier?.[1]?.value || contract.identifier?.[0]?.value;
-      const period = contract.term?.[0]?.asset?.[0]?.period?.[0];
-      
-      console.log(`✅ FAMILY HAS ACTIVE CONTRACT`);
-      console.log(`   Contract ID: ${contractId}`);
-      console.log(`   Period: ${period?.start} to ${period?.end}`);
-      console.log(`   → ALL FAMILY MEMBERS ARE COVERED (including patient ${insuranceNumber})`);
-      
+    if (groupId && contractDataForResponse.entry && contractDataForResponse.entry.length > 0) {
+      console.log('✅ FAMILY HAS ACTIVE CONTRACT');
+      console.log('Patient belongs to Group/Family:', groupId);
+      console.log('   → ALL FAMILY MEMBERS ARE COVERED');
       coverageStatus = 'active';
     } else {
-      console.log(`❌ FAMILY HAS NO ACTIVE CONTRACT`);
-      console.log(`   → ALL FAMILY MEMBERS ARE NOT COVERED (including patient ${insuranceNumber})`);
-      console.log(`   Reason: No contract found with valid period AND payment receipt for Group ${groupId}`);
-      
-      coverageStatus = 'inactive';
+      console.log('❌ FAMILY HAS NO ACTIVE CONTRACT');
+      console.log('Patient belongs to Group/Family:', groupId);
+      console.log('   → ALL FAMILY MEMBERS ARE NOT COVERED');
+      console.log('   Reason: No contract found with valid period AND payment');
     }
     
-    console.log(`\n📊 Final coverage status for patient ${insuranceNumber}: ${coverageStatus.toUpperCase()}`);
+    console.log('\n📊 Final coverage status:', coverageStatus.toUpperCase());
+
+    const fullName = patient.name?.[0]
+      ? `${patient.name[0].given?.[0] || ''} ${patient.name[0].family || ''}`.trim()
+      : 'Unknown';
 
     return new Response(
       JSON.stringify({
         exists: true,
-        patientData: patient,
+        patientData,
         coverageData,
-        contractData,
+        contractData: contractDataForResponse,
         insurancePlanData,
         fullName,
-        coverageStatus, // Add status determined by edge function
+        coverageStatus,
       }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
     );
+
   } catch (error) {
-    console.error('Error in amg-verify-insurance:', error);
+    console.error('Error processing request:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
+      JSON.stringify({ error: 'Internal server error', details: errorMessage }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
