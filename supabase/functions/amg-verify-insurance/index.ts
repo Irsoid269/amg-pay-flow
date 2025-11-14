@@ -194,61 +194,10 @@ Deno.serve(async (req) => {
         
         const activeContracts = contractData.entry.filter((entry: any) => {
           const contract = entry.resource;
-          const status = contract.status?.toLowerCase();
-          
-          // CRITICAL: The FHIR status field is NOT reliable in AMG
-          // We need to check the PolicyStatus extension for the REAL status
-          // PolicyStatus values: 1=Idle, 2=Active, 4=Suspended, 8=Expired, 16=Ready
-          
-          let policyStatus = null;
-          
-          // Search for PolicyStatus in all contract extensions
-          const findPolicyStatus = (obj: any): number | null => {
-            if (!obj || typeof obj !== 'object') return null;
-            
-            // Check if this is a policy-status extension
-            if (obj.url && obj.url.includes('policy-status')) {
-              if (obj.valueInteger !== undefined) return obj.valueInteger;
-              if (obj.valueDecimal !== undefined) return Math.floor(obj.valueDecimal);
-              if (obj.valueCode !== undefined) {
-                const codeMap: any = { 'idle': 1, 'active': 2, 'suspended': 4, 'expired': 8, 'ready': 16 };
-                return codeMap[obj.valueCode.toLowerCase()] || null;
-              }
-              if (obj.valueString !== undefined) {
-                const str = obj.valueString.toLowerCase();
-                if (str === 'active' || str === '2') return 2;
-                if (str === 'idle' || str === '1') return 1;
-                if (str === 'suspended' || str === '4') return 4;
-                if (str === 'expired' || str === '8') return 8;
-                if (str === 'ready' || str === '16') return 16;
-              }
-            }
-            
-            // Recursively search in extensions
-            if (obj.extension && Array.isArray(obj.extension)) {
-              for (const ext of obj.extension) {
-                const found = findPolicyStatus(ext);
-                if (found !== null) return found;
-              }
-            }
-            
-            // Search in all object properties
-            for (const key in obj) {
-              if (key !== 'extension' && typeof obj[key] === 'object') {
-                const found = findPolicyStatus(obj[key]);
-                if (found !== null) return found;
-              }
-            }
-            
-            return null;
-          };
-          
-          policyStatus = findPolicyStatus(contract);
-          
-          // Check if contract is active based on PolicyStatus (2 = Active) OR period validity
           const period = contract.term?.[0]?.asset?.[0]?.period?.[0];
-          let periodValid = false;
           
+          // Check period validity
+          let periodValid = false;
           if (period) {
             const now = new Date();
             const start = new Date(period.start);
@@ -256,19 +205,32 @@ Deno.serve(async (req) => {
             periodValid = now >= start && now <= end;
           }
           
-          // A contract is active if:
-          // 1. PolicyStatus = 2 (Active) AND period is valid
-          // 2. OR FHIR status is "executed" (legacy fallback)
-          const isActive = (policyStatus === 2 && periodValid) || status === 'executed';
+          // Check for payment receipt in contract-premium extension
+          // If there's a receipt, it means the contract has been paid and is active
+          let hasPayment = false;
+          let receiptInfo = null;
           
-          if (isActive || policyStatus === 2 || periodValid) {
+          const premiumExt = contract.term?.[0]?.asset?.[0]?.extension?.find(
+            (ext: any) => ext.url === 'https://openimis.github.io/openimis_fhir_r4_ig/StructureDefinition/contract-premium'
+          );
+          
+          if (premiumExt?.extension) {
+            const receiptExt = premiumExt.extension.find((ext: any) => ext.url === 'receipt');
+            if (receiptExt?.valueString) {
+              hasPayment = true;
+              receiptInfo = receiptExt.valueString;
+            }
+          }
+          
+          // In AMG system: Contract is ACTIVE if period is valid AND payment exists
+          const isActive = periodValid && hasPayment;
+          
+          if (periodValid || hasPayment) {
             const contractId = contract.identifier?.[1]?.value || contract.identifier?.[0]?.value;
-            console.log(`✓ Potential contract ${contractId}:`);
-            console.log(`   FHIR status: ${contract.status}`);
-            console.log(`   PolicyStatus: ${policyStatus !== null ? policyStatus : 'not found'}`);
-            console.log(`   Period: ${period?.start} to ${period?.end}`);
-            console.log(`   Period valid: ${periodValid}`);
-            console.log(`   Is ACTIVE: ${isActive}`);
+            console.log(`✓ Contract ${contractId}:`);
+            console.log(`   Period: ${period?.start} to ${period?.end} (valid: ${periodValid})`);
+            console.log(`   Payment receipt: ${receiptInfo || 'none'}`);
+            console.log(`   → STATUS: ${isActive ? 'ACTIVE ✅' : 'INACTIVE ❌'}`);
           }
           
           return isActive;
