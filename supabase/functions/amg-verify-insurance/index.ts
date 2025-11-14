@@ -159,10 +159,11 @@ Deno.serve(async (req) => {
     
     console.log(`Patient belongs to Group: ${groupId}`);
     
-    // Query contracts by Group, not by individual Patient
+    // Query contracts by Group with sorting and increased page size
+    // Sort by _lastUpdated descending to get most recent contracts first
     const contractQueryParam = groupId 
-      ? `subject=Group/${groupId}` 
-      : `subject=Patient/${patient.id}`; // fallback to patient if no group found
+      ? `subject=Group/${groupId}&_count=50&_sort=-_lastUpdated` 
+      : `subject=Patient/${patient.id}&_count=50&_sort=-_lastUpdated`;
     
     const contractResponse = await fetch(
       `https://dev.amg.km/api/api_fhir_r4/Contract/?${contractQueryParam}`,
