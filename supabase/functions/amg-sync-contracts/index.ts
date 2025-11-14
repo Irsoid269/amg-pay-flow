@@ -103,6 +103,13 @@ Deno.serve(async (req) => {
       if (contractData.entry && contractData.entry.length > 0) {
         for (const entry of contractData.entry) {
           const contract = entry.resource;
+          
+          // Skip contracts without valid ID
+          if (!contract.id) {
+            console.log('⚠️ Skipping contract without ID');
+            continue;
+          }
+          
           const contractSubject = contract.subject?.[0]?.reference || '';
           
           // Extract group ID
