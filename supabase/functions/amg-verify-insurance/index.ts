@@ -184,52 +184,45 @@ Deno.serve(async (req) => {
       console.log('Contract data retrieved successfully');
       console.log(`Total contracts found for ${groupId ? 'Group' : 'Patient'}: ${contractData.total || 0}`);
       
-      // Analyze all contracts to find the best one for this patient's group
+      // Analyze contracts to find the active/executed one for this group
       if (contractData.entry && contractData.entry.length > 0) {
         console.log(`Analyzing ${contractData.entry.length} contracts...`);
         
-        // For group contracts, check if the patient is listed in typeReference
-        const relevantContracts = contractData.entry.filter((entry: any) => {
+        // IMPORTANT: In openIMIS, all members of a Group are covered by the Group's contract
+        // We don't need to check if the patient is in typeReference
+        // We just need to find the most recent ACTIVE contract (Executed status)
+        
+        const activeContracts = contractData.entry.filter((entry: any) => {
           const contract = entry.resource;
-          const typeReferences = contract.term?.[0]?.asset?.[0]?.typeReference || [];
+          const status = contract.status?.toLowerCase();
           
-          // Check if this specific patient is covered in this contract
-          const hasPatient = typeReferences.some((ref: any) => {
-            const refId = ref.display || ref.identifier?.value;
-            return refId === patient.id;
-          });
+          // Check if the contract is in an active state
+          const isActive = status === 'executed'; // Only "Executed" means truly active
           
-          if (hasPatient) {
-            console.log(`✓ Found contract ${contract.identifier?.[1]?.value || contract.identifier?.[0]?.value} with status: ${contract.status} covering patient ${patient.id}`);
+          if (isActive) {
+            console.log(`✓ Found ACTIVE contract ${contract.identifier?.[1]?.value || contract.identifier?.[0]?.value} with status: ${contract.status}`);
+            
+            // Also log period info
+            const period = contract.term?.[0]?.asset?.[0]?.period?.[0];
+            if (period) {
+              console.log(`   Period: ${period.start} to ${period.end}`);
+            }
           }
           
-          return hasPatient;
+          return isActive;
         });
         
-        console.log(`Found ${relevantContracts.length} relevant contracts for patient ${patient.id} in their group`);
+        console.log(`Found ${activeContracts.length} ACTIVE (Executed) contracts for Group ${groupId}`);
         
-        if (relevantContracts.length > 0) {
-          // Priority: Executed > Offered > others
-          // Also prefer the most recent one
-          selectedContract = relevantContracts.reduce((best: any, current: any) => {
+        if (activeContracts.length > 0) {
+          // Take the most recent active contract
+          selectedContract = activeContracts.reduce((best: any, current: any) => {
             const currentContract = current.resource;
             const bestContract = best?.resource;
             
             if (!best) return current;
             
-            const currentStatus = currentContract.status?.toLowerCase();
-            const bestStatus = bestContract.status?.toLowerCase();
-            
-            // Executed is the highest priority (actual active coverage)
-            if (currentStatus === 'executed' && bestStatus !== 'executed') {
-              console.log(`   Preferring Executed status over ${bestStatus}`);
-              return current;
-            }
-            if (bestStatus === 'executed' && currentStatus !== 'executed') {
-              return best;
-            }
-            
-            // If both have same status priority, prefer the most recent (by date in extension)
+            // Prefer the most recent (by period start date)
             const currentDate = currentContract.term?.[0]?.asset?.[0]?.period?.[0]?.start;
             const bestDate = bestContract.term?.[0]?.asset?.[0]?.period?.[0]?.start;
             
@@ -243,16 +236,31 @@ Deno.serve(async (req) => {
           
           if (selectedContract) {
             const contract = selectedContract.resource;
-            console.log(`✅ Selected contract: ${contract.identifier?.[1]?.value || contract.identifier?.[0]?.value}`);
-            console.log(`   Status: ${contract.status}`);
+            console.log(`✅ Selected ACTIVE contract for Group ${groupId}:`);
+            console.log(`   Contract ID: ${contract.identifier?.[1]?.value || contract.identifier?.[0]?.value}`);
+            console.log(`   Status: ${contract.status} (ACTIVE)`);
             console.log(`   Period: ${contract.term?.[0]?.asset?.[0]?.period?.[0]?.start} to ${contract.term?.[0]?.asset?.[0]?.period?.[0]?.end}`);
+            console.log(`   Patient ${patient.id} is covered as member of Group ${groupId}`);
             
-            // Replace the first entry with the selected contract
+            // Replace with selected contract
             contractData.entry = [selectedContract];
           }
         } else {
-          console.log(`⚠️  No contracts found for patient ${patient.id} in their group contracts`);
-          console.log('   This may indicate the patient is not yet enrolled in any active policy');
+          // Fallback: check for "Offered" status if no "Executed" found
+          console.log('⚠️  No Executed contracts found, checking for Offered...');
+          const offeredContracts = contractData.entry.filter((entry: any) => {
+            const contract = entry.resource;
+            return contract.status?.toLowerCase() === 'offered';
+          });
+          
+          if (offeredContracts.length > 0) {
+            console.log(`Found ${offeredContracts.length} Offered (pending) contracts`);
+            selectedContract = offeredContracts[0];
+            contractData.entry = [selectedContract];
+          } else {
+            console.log(`❌ No active or offered contracts found for Group ${groupId}`);
+            console.log('   This may indicate the group has no valid insurance policy');
+          }
         }
       }
     } else {
