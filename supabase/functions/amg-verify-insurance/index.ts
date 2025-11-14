@@ -196,17 +196,79 @@ Deno.serve(async (req) => {
           const contract = entry.resource;
           const status = contract.status?.toLowerCase();
           
-          // Check if the contract is in an active state
-          const isActive = status === 'executed'; // Only "Executed" means truly active
+          // CRITICAL: The FHIR status field is NOT reliable in AMG
+          // We need to check the PolicyStatus extension for the REAL status
+          // PolicyStatus values: 1=Idle, 2=Active, 4=Suspended, 8=Expired, 16=Ready
           
-          if (isActive) {
-            console.log(`✓ Found ACTIVE contract ${contract.identifier?.[1]?.value || contract.identifier?.[0]?.value} with status: ${contract.status}`);
+          let policyStatus = null;
+          
+          // Search for PolicyStatus in all contract extensions
+          const findPolicyStatus = (obj: any): number | null => {
+            if (!obj || typeof obj !== 'object') return null;
             
-            // Also log period info
-            const period = contract.term?.[0]?.asset?.[0]?.period?.[0];
-            if (period) {
-              console.log(`   Period: ${period.start} to ${period.end}`);
+            // Check if this is a policy-status extension
+            if (obj.url && obj.url.includes('policy-status')) {
+              if (obj.valueInteger !== undefined) return obj.valueInteger;
+              if (obj.valueDecimal !== undefined) return Math.floor(obj.valueDecimal);
+              if (obj.valueCode !== undefined) {
+                const codeMap: any = { 'idle': 1, 'active': 2, 'suspended': 4, 'expired': 8, 'ready': 16 };
+                return codeMap[obj.valueCode.toLowerCase()] || null;
+              }
+              if (obj.valueString !== undefined) {
+                const str = obj.valueString.toLowerCase();
+                if (str === 'active' || str === '2') return 2;
+                if (str === 'idle' || str === '1') return 1;
+                if (str === 'suspended' || str === '4') return 4;
+                if (str === 'expired' || str === '8') return 8;
+                if (str === 'ready' || str === '16') return 16;
+              }
             }
+            
+            // Recursively search in extensions
+            if (obj.extension && Array.isArray(obj.extension)) {
+              for (const ext of obj.extension) {
+                const found = findPolicyStatus(ext);
+                if (found !== null) return found;
+              }
+            }
+            
+            // Search in all object properties
+            for (const key in obj) {
+              if (key !== 'extension' && typeof obj[key] === 'object') {
+                const found = findPolicyStatus(obj[key]);
+                if (found !== null) return found;
+              }
+            }
+            
+            return null;
+          };
+          
+          policyStatus = findPolicyStatus(contract);
+          
+          // Check if contract is active based on PolicyStatus (2 = Active) OR period validity
+          const period = contract.term?.[0]?.asset?.[0]?.period?.[0];
+          let periodValid = false;
+          
+          if (period) {
+            const now = new Date();
+            const start = new Date(period.start);
+            const end = new Date(period.end);
+            periodValid = now >= start && now <= end;
+          }
+          
+          // A contract is active if:
+          // 1. PolicyStatus = 2 (Active) AND period is valid
+          // 2. OR FHIR status is "executed" (legacy fallback)
+          const isActive = (policyStatus === 2 && periodValid) || status === 'executed';
+          
+          if (isActive || policyStatus === 2 || periodValid) {
+            const contractId = contract.identifier?.[1]?.value || contract.identifier?.[0]?.value;
+            console.log(`✓ Potential contract ${contractId}:`);
+            console.log(`   FHIR status: ${contract.status}`);
+            console.log(`   PolicyStatus: ${policyStatus !== null ? policyStatus : 'not found'}`);
+            console.log(`   Period: ${period?.start} to ${period?.end}`);
+            console.log(`   Period valid: ${periodValid}`);
+            console.log(`   Is ACTIVE: ${isActive}`);
           }
           
           return isActive;
