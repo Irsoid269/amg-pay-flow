@@ -43,9 +43,36 @@ const Dashboard = () => {
 
         console.log('Dashboard - Data loaded:', insuranceData);
         console.log('Coverage data:', insuranceData.coverageData);
+        console.log('Contract data:', insuranceData.contractData);
+        console.log('Insurance plan data:', insuranceData.insurancePlanData);
 
         setUserName(insuranceData.fullName || 'Utilisateur');
         setInsuranceNumber(insuranceData.insuranceNumber || '');
+
+        // Extraire le montant depuis Contract, InsurancePlan ou utiliser la valeur par défaut
+        let amount = '3 000';
+        let paymentFrequency = 'mensuelle';
+        
+        // Essayer de récupérer le montant depuis le contrat
+        if (insuranceData.contractData?.entry?.[0]?.resource?.term?.[0]?.offer?.premium) {
+          const premium = insuranceData.contractData.entry[0].resource.term[0].offer.premium;
+          if (premium.value) {
+            amount = new Intl.NumberFormat('fr-FR').format(premium.value);
+          }
+        }
+        
+        // Essayer de récupérer le montant depuis le plan d'assurance
+        if (insuranceData.insurancePlanData?.entry?.[0]?.resource?.plan?.[0]?.specificCost) {
+          const cost = insuranceData.insurancePlanData.entry[0].resource.plan[0].specificCost;
+          if (cost?.[0]?.benefit?.[0]?.cost?.[0]?.value?.value) {
+            amount = new Intl.NumberFormat('fr-FR').format(cost[0].benefit[0].cost[0].value.value);
+          }
+        }
+
+        setPaymentAmount(amount);
+        setPaymentType(paymentFrequency);
+        
+        console.log('Payment amount extracted:', amount, 'KMF');
         
         // Extraire les informations de couverture depuis coverageData
         if (insuranceData.coverageData && insuranceData.coverageData.entry) {
@@ -60,7 +87,6 @@ const Dashboard = () => {
             // Statut de la couverture (active, draft, suspended, etc.)
             const status = latestCoverage.status || 'draft';
             const isActive = status === 'active';
-            setCoverageStatus(isActive ? 'active' : 'inactive');
             
             // Vérifier les dates de validité
             let coverageValid = false;
@@ -73,36 +99,23 @@ const Dashboard = () => {
               console.log('Coverage period:', {
                 start: startDate,
                 end: endDate,
-                valid: coverageValid
+                valid: coverageValid,
+                currentDate: now
               });
             }
             
-            // Le montant - chercher dans les extensions ou utiliser un montant par défaut
-            // Pour AMG Comores, la cotisation mensuelle standard est de 3000 KMF
-            let amount = '3 000';
-            let paymentFrequency = 'mensuelle';
-            
-            // Si l'API fournit un montant, l'utiliser
-            if (latestCoverage.costToBeneficiary && latestCoverage.costToBeneficiary.value) {
-              const costValue = latestCoverage.costToBeneficiary.value.value;
-              amount = new Intl.NumberFormat('fr-FR').format(costValue);
-            }
-            
-            setPaymentAmount(amount);
-            setPaymentType(paymentFrequency);
-            
-            // Déterminer si la couverture est active en fonction du statut ET de la période
+            // Déterminer si la couverture est active
+            // "draft" signifie en attente de paiement
+            // "active" signifie couverture active
             const finalStatus = (isActive && coverageValid) ? 'active' : 'inactive';
             setCoverageStatus(finalStatus);
             
+            console.log('Coverage status from API:', status);
             console.log('Final coverage status:', finalStatus);
-            console.log('Payment amount:', amount, 'KMF');
+            console.log('Is covered:', finalStatus === 'active');
           }
         } else {
           console.log('No coverage data available');
-          // Valeurs par défaut si pas de données de couverture
-          setPaymentAmount('3 000');
-          setPaymentType('mensuelle');
           setCoverageStatus('inactive');
         }
         
