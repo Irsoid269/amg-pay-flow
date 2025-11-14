@@ -160,70 +160,58 @@ Deno.serve(async (req) => {
     console.log(`Patient belongs to Group: ${groupId}`);
     
     // Query contracts by Group with sorting and increased page size
-    // IMPORTANT: Ne PAS filtrer par subject dans l'API car le filtre ne fonctionne pas
-    // On va récupérer tous les contrats récents et filtrer côté code
-    // Récupérer 1000 contrats les plus récents pour être sûr d'avoir celui de la famille
-    console.log(`🔍 Fetching ALL recent contracts (no subject filter) to find Group ${groupId} contract...`);
+    // IMPORTANT: Implémenter une pagination automatique pour parcourir TOUS les contrats
+    // jusqu'à trouver celui de la famille, peu importe le nombre total de contrats
+    console.log(`🔍 Starting pagination to find contract for Group ${groupId}...`);
     
-    const contractResponse = await fetch(
-      `https://dev.amg.km/api/api_fhir_r4/Contract/?_count=1000&_sort=-_lastUpdated`,
-      {
+    let selectedContract = null;
+    let currentUrl = `https://dev.amg.km/api/api_fhir_r4/Contract/?_count=500&_sort=-_lastUpdated`;
+    let pageNumber = 1;
+    let totalContractsScanned = 0;
+    let foundGroupContract = false;
+    
+    // Pagination loop: Continue jusqu'à trouver le contrat ou avoir parcouru tous les contrats
+    while (currentUrl && !foundGroupContract) {
+      console.log(`\n📄 Page ${pageNumber}: Fetching contracts from API...`);
+      
+      const contractResponse = await fetch(currentUrl, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`,
         },
-      }
-    );
-
-    let contractData = null;
-    let selectedContract = null;
-    
-    if (contractResponse.ok) {
-      contractData = await contractResponse.json();
-      console.log('✅ Contract data retrieved successfully');
-      console.log(`📊 Total contracts in AMG system: ${contractData.total || 0}`);
-      console.log(`📦 Number of contracts fetched: ${contractData.entry?.length || 0}`);
-      console.log(`🎯 Looking for contracts belonging to Group: ${groupId}`);
+      });
       
-      // Analyze contracts to find the active/executed one for this group
+      if (!contractResponse.ok) {
+        console.log(`❌ Contract API request failed with status: ${contractResponse.status}`);
+        const errorText = await contractResponse.text();
+        console.log(`   Error response: ${errorText.substring(0, 200)}`);
+        break;
+      }
+      
+      const contractData = await contractResponse.json();
+      const contractsInPage = contractData.entry?.length || 0;
+      totalContractsScanned += contractsInPage;
+      
+      console.log(`✅ Page ${pageNumber}: Retrieved ${contractsInPage} contracts`);
+      console.log(`📊 Total scanned so far: ${totalContractsScanned} / ${contractData.total || 0}`);
+      console.log(`🎯 Searching for Group: ${groupId}`);
+      
+      // Analyze contracts in this page to find the active one for this group
       if (contractData.entry && contractData.entry.length > 0) {
-        console.log(`\n🔎 Analyzing ${contractData.entry.length} contracts to find Group ${groupId}...`);
         
-        // First, count how many contracts belong to this group
-        let groupContractCount = 0;
+        // Count contracts for this group in this page
+        let groupContractsInPage = 0;
         contractData.entry.forEach((entry: any) => {
-          const contract = entry.resource;
-          const contractSubject = contract.subject?.[0]?.reference;
-          if (contractSubject?.includes(groupId)) {
-            groupContractCount++;
+          const contractSubject = entry.resource?.subject?.[0]?.reference || '';
+          if (contractSubject.includes(groupId)) {
+            groupContractsInPage++;
           }
         });
         
-        console.log(`📊 Found ${groupContractCount} contracts for Group ${groupId} out of ${contractData.entry.length} total`);
+        console.log(`   → Found ${groupContractsInPage} contracts for Group ${groupId} in this page`);
         
-        // Log first 5 contracts that belong to this group (for debugging)
-        console.log('📋 First contracts for this Group:');
-        let debugCount = 0;
-        contractData.entry.forEach((entry: any, idx: number) => {
-          if (debugCount >= 5) return;
-          const contract = entry.resource;
-          const contractSubject = contract.subject?.[0]?.reference;
-          if (contractSubject?.includes(groupId)) {
-            debugCount++;
-            const contractId = contract.identifier?.[1]?.value || contract.identifier?.[0]?.value || 'unknown';
-            const status = contract.status || 'no status';
-            const period = contract.term?.[0]?.asset?.[0]?.period?.[0];
-            console.log(`  [${debugCount}] Contract ${contractId}:`);
-            console.log(`      subject="${contractSubject}", status="${status}"`);
-            console.log(`      period: ${period?.start} to ${period?.end}`);
-          }
-        });
-        
-        // IMPORTANT: In openIMIS, all members of a Group are covered by the Group's contract
-        // We don't need to check if the patient is in typeReference
-        // We just need to find the most recent ACTIVE contract (Executed status)
-        
+        // Search for active contracts in this page
         const activeContracts = contractData.entry.filter((entry: any) => {
           const contract = entry.resource;
           
