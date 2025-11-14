@@ -10,6 +10,7 @@ import PaymentConfirm from "./pages/PaymentConfirm";
 import PaymentResult from "./pages/PaymentResult";
 import History from "./pages/History";
 import Notifications from "./pages/Notifications";
+import AdminSync from "./pages/AdminSync";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ const App = () => (
           <Route path="/payment-result" element={<PaymentResult />} />
           <Route path="/history" element={<History />} />
           <Route path="/notifications" element={<Notifications />} />
+          <Route path="/admin/sync" element={<AdminSync />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
