@@ -152,80 +152,77 @@ const Dashboard = () => {
         
         console.log('Final payment amount:', amount, 'KMF');
         
-        // Extraire les informations de couverture - Utiliser le Contract.status pour déterminer le statut réel
+        // Analyser toutes les ressources pour trouver le vrai statut actif/inactif
+        console.log('=== ANALYZING ALL STATUS FIELDS ===');
+        
         let finalStatus = 'inactive';
         let coverageValid = false;
         
-        // Le statut réel vient du Contract, pas du Coverage
+        // Analyser le Contract
         if (insuranceData.contractData?.entry?.[0]?.resource) {
           const contract = insuranceData.contractData.entry[0].resource;
-          const contractStatus = contract.status; // "Offered", "Policy", "Revoked", "Rejected", etc.
+          console.log('📋 CONTRACT STATUS ANALYSIS:');
+          console.log('  - contract.status:', contract.status);
           
-          console.log('Contract status from API:', contractStatus);
-          
-          // Vérifier les dates de validité depuis le Contract
-          if (contract.term?.[0]?.asset?.[0]?.period?.[0]) {
-            const startDate = new Date(contract.term[0].asset[0].period[0].start);
-            const endDate = new Date(contract.term[0].asset[0].period[0].end);
-            const now = new Date();
-            coverageValid = now >= startDate && now <= endDate;
-            
-            console.log('Contract period:', {
-              start: startDate,
-              end: endDate,
-              valid: coverageValid,
-              currentDate: now
+          // Vérifier tous les champs possibles pour le statut
+          if (contract.term?.[0]?.asset) {
+            contract.term[0].asset.forEach((asset: any, idx: number) => {
+              console.log(`  - asset[${idx}] typeReference:`, asset.typeReference?.map((ref: any) => ref.display));
+              
+              if (asset.period?.[0]) {
+                const startDate = new Date(asset.period[0].start);
+                const endDate = new Date(asset.period[0].end);
+                const now = new Date();
+                coverageValid = now >= startDate && now <= endDate;
+                
+                console.log(`  - asset[${idx}] period: ${asset.period[0].start} to ${asset.period[0].end}`);
+                console.log(`  - period is valid: ${coverageValid}`);
+              }
             });
           }
-          
-          // Interpréter le statut du contrat:
-          // "Offered" = Contrat proposé et actif (équivalent à "Active")
-          // "Policy" = Police active
-          // "Revoked" = Révoqué
-          // "Rejected" = Rejeté
-          if ((contractStatus === 'Offered' || contractStatus === 'Policy') && coverageValid) {
-            finalStatus = 'active';
-          } else if ((contractStatus === 'Offered' || contractStatus === 'Policy') && !coverageValid) {
-            finalStatus = 'expired';
-          } else if (contractStatus === 'Revoked' || contractStatus === 'Rejected') {
-            finalStatus = 'cancelled';
-          } else {
-            // Pour le Coverage.status = "draft", vérifier si le contrat est "Offered"
-            // Si Offered, c'est actif même si Coverage est draft
-            if (contractStatus === 'Offered' && coverageValid) {
-              finalStatus = 'active';
-            } else {
-              finalStatus = 'pending';
-            }
-          }
-          
-          console.log('Final coverage status (from Contract):', finalStatus);
-          console.log('Is covered:', finalStatus === 'active');
-          
-          setCoverageStatus(finalStatus);
-        } else if (insuranceData.coverageData?.entry?.[0]?.resource) {
-          // Fallback sur le Coverage si pas de Contract
-          const latestCoverage = insuranceData.coverageData.entry[0].resource;
-          const apiStatus = latestCoverage.status || 'draft';
-          
-          if (latestCoverage.period) {
-            const startDate = new Date(latestCoverage.period.start);
-            const endDate = new Date(latestCoverage.period.end);
-            const now = new Date();
-            coverageValid = now >= startDate && now <= endDate;
-          }
-          
-          if (apiStatus === 'active' && coverageValid) {
-            finalStatus = 'active';
-          } else if (apiStatus === 'draft') {
-            finalStatus = 'pending';
-          }
-          
-          setCoverageStatus(finalStatus);
-        } else {
-          console.log('No coverage or contract data available');
-          setCoverageStatus('inactive');
         }
+        
+        // Analyser TOUS les Coverage pour trouver le bon statut
+        if (insuranceData.coverageData?.entry) {
+          console.log('📄 COVERAGE STATUS ANALYSIS (checking ALL entries):');
+          console.log(`  - Total entries: ${insuranceData.coverageData.entry.length}`);
+          
+          insuranceData.coverageData.entry.forEach((entry: any, idx: number) => {
+            const coverage = entry.resource;
+            const covStatus = coverage.status;
+            let covPeriodValid = false;
+            
+            if (coverage.period) {
+              const startDate = new Date(coverage.period.start);
+              const endDate = new Date(coverage.period.end);
+              const now = new Date();
+              covPeriodValid = now >= startDate && now <= endDate;
+            }
+            
+            console.log(`  - Coverage[${idx}]:`, {
+              status: covStatus,
+              period: coverage.period,
+              periodValid: covPeriodValid,
+              policyHolder: coverage.policyHolder?.reference,
+              beneficiary: coverage.beneficiary?.reference
+            });
+            
+            // Le vrai statut est "active" seulement si:
+            // 1. coverage.status === "active" (pas "draft")
+            // 2. La période est valide
+            if (covStatus === 'active' && covPeriodValid) {
+              finalStatus = 'active';
+              console.log(`  ✓ Found ACTIVE coverage at index ${idx}`);
+            }
+          });
+        }
+        
+        // Si aucun Coverage n'est "active", alors l'assuré est inactif
+        console.log('=== FINAL STATUS DETERMINATION ===');
+        console.log('Final status:', finalStatus);
+        console.log('Reason: Coverage.status must be "active" (not "draft") AND period must be valid');
+        
+        setCoverageStatus(finalStatus);
         
         setIsLoading(false);
       } catch (error) {
