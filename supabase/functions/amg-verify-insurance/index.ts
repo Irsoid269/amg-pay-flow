@@ -90,6 +90,16 @@ Deno.serve(async (req) => {
     if (!patientResponse.ok) {
       const errorText = await patientResponse.text();
       console.error('Patient search failed:', patientResponse.status, errorText);
+      
+      // If patient not found (404), return exists: false instead of error
+      if (patientResponse.status === 404) {
+        return new Response(
+          JSON.stringify({ exists: false }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      // For other errors, return 500
       return new Response(
         JSON.stringify({ error: 'Failed to verify insurance number' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
