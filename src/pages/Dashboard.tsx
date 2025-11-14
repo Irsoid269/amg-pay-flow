@@ -42,6 +42,9 @@ const Dashboard = () => {
         }
 
         console.log('Dashboard - Data loaded:', insuranceData);
+        console.log('=== DONNÉES ASSURÉ ===');
+        console.log('Numéro assurance:', insuranceData.insuranceNumber);
+        console.log('Nom complet:', insuranceData.fullName);
         console.log('Coverage data structure:', JSON.stringify(insuranceData.coverageData, null, 2));
         console.log('Contract data structure:', JSON.stringify(insuranceData.contractData, null, 2));
         console.log('Insurance plan data structure:', JSON.stringify(insuranceData.insurancePlanData, null, 2));
@@ -116,27 +119,30 @@ const Dashboard = () => {
           const contractAmounts = findAllAmounts(contract, 'contract');
           console.log('All amounts found in Contract:', contractAmounts);
           
-          // Essayer term[0].asset[0].extension pour trouver l'amount
+          // MONTANT DE LA COTISATION (contract-premium.amount)
+          // C'est le montant que l'assuré doit payer
           if (contract.term?.[0]?.asset?.[0]?.extension) {
             const premiumExtension = contract.term[0].asset[0].extension.find(
               (ext: any) => ext.url === 'https://openimis.github.io/openimis_fhir_r4_ig/StructureDefinition/contract-premium'
             );
             
             if (premiumExtension?.extension) {
-              console.log('Premium extension details:', JSON.stringify(premiumExtension, null, 2));
+              console.log('Premium extension found:', JSON.stringify(premiumExtension, null, 2));
               
               const amountExt = premiumExtension.extension.find((ext: any) => ext.url === 'amount');
               if (amountExt?.valueMoney?.value) {
                 amount = new Intl.NumberFormat('fr-FR').format(amountExt.valueMoney.value);
-                console.log('✓ Using amount from contract.premium:', amount, 'KMF');
+                console.log('💰 MONTANT COTISATION (contract.premium.amount):', amount, 'KMF');
               }
             }
           }
           
-          // Essayer term[0].asset[0].valuedItem[0].net
+          // VALEUR DE LA POLICE (PolicyValue)
+          // C'est la couverture maximum, PAS le montant à payer
           if (contract.term?.[0]?.asset?.[0]?.valuedItem?.[0]?.net?.value) {
-            const netAmount = contract.term[0].asset[0].valuedItem[0].net.value;
-            console.log('Contract valuedItem.net.value:', netAmount, 'KMF');
+            const policyValue = contract.term[0].asset[0].valuedItem[0].net.value;
+            console.log('📋 POLICY VALUE (couverture max, tblPolicy.PolicyValue):', new Intl.NumberFormat('fr-FR').format(policyValue), 'KMF');
+            console.log('   Note: PolicyValue est la couverture, pas le montant à payer');
           }
         }
         
@@ -175,12 +181,10 @@ const Dashboard = () => {
         }
         
         console.log('=== END OF AMOUNT SEARCH ===');
-        console.log('Current amount being used:', amount, 'KMF');
+        console.log('💰 Montant final à afficher:', amount, 'KMF');
+        console.log('📅 Type de paiement:', paymentFrequency);
 
-        setPaymentAmount(amount);
-        setPaymentType(paymentFrequency);
-        
-        console.log('Final payment amount:', amount, 'KMF');
+        // Ne PAS écraser le montant ici, on utilise celui trouvé dans contract.premium
         
         // === MAPPING OFFICIEL openIMIS FHIR ===
         // tblPolicy → Contract (ressource FHIR)
@@ -263,17 +267,12 @@ const Dashboard = () => {
               }
             }
           }
-          
-          // Extraire PolicyValue (montant de la cotisation)
-          const netValue = contract.term?.[0]?.asset?.[0]?.valuedItem?.[0]?.net?.value;
-          if (netValue) {
-            amount = new Intl.NumberFormat('fr-FR').format(netValue);
-            console.log('💰 PolicyValue (tblPolicy.PolicyValue):', amount, 'KMF');
-          }
         }
         
         console.log('=== FINAL STATUS ===');
         console.log('Coverage Status:', finalStatus);
+        console.log('=== FINAL AMOUNT ===');
+        console.log('💰 Montant cotisation pour cet assuré:', amount, 'KMF');
         
         setCoverageStatus(finalStatus);
         setPaymentAmount(amount);
