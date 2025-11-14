@@ -75,6 +75,7 @@ const Login = () => {
         coverageData: data.coverageData,
         contractData: data.contractData,
         insurancePlanData: data.insurancePlanData,
+        coverageStatus: data.coverageStatus, // Status determined by edge function
         timestamp: Date.now(),
       };
       

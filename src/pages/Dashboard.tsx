@@ -218,192 +218,28 @@ const Dashboard = () => {
         
         console.log('📅 Type de paiement:', paymentFrequency);
         
-        // === MAPPING OFFICIEL openIMIS FHIR ===
-        // tblPolicy → Contract (ressource FHIR)
-        // tblPolicy.PolicyStatus (NUMERIC) → Contract.status (TEXT)
-        //   PolicyStatus codes openIMIS:
-        //   1 = Idle (en attente)
-        //   2 = Active (actif)
-        //   4 = Suspended (suspendu)
-        //   8 = Expired (expiré)
-        //   16 = Ready (prêt)
-        // 
-        // Contract.status mapping:
-        //   "offered" = police proposée/active (PolicyStatus=2)
-        //   "policy" = police active (PolicyStatus=2)
-        //   "executed" = police exécutée (PolicyStatus=2)
-        //   "cancelled" = police annulée
-        //   "terminated" = police terminée
-        console.log('=== DETERMINING POLICY STATUS FROM AMG SYSTEM (tblPolicy.PolicyStatus) ===');
-        
+        // === USE STATUS DETERMINED BY EDGE FUNCTION ===
+        // The edge function already analyzed the contracts and determined the coverage status
+        // based on: 1) Valid period, 2) Presence of payment receipt
         let finalStatus = 'inactive';
-        let policyStatusCode = null;
         
-        if (insuranceData.contractData?.entry?.[0]?.resource) {
-          const contract = insuranceData.contractData.entry[0].resource;
+        if (insuranceData.coverageStatus) {
+          finalStatus = insuranceData.coverageStatus;
+          console.log('=== COVERAGE STATUS FROM EDGE FUNCTION ===');
+          console.log('✅ Using status determined by AMG API edge function:', finalStatus.toUpperCase());
           
-          // ÉTAPE 1: Chercher le PolicyStatus NUMÉRIQUE dans les extensions
-          // C'est la valeur RÉELLE du système AMG (tblPolicy.PolicyStatus)
-          const findPolicyStatusValue = (obj: any): number | null => {
-            if (obj === null || obj === undefined) return null;
-            
-            if (typeof obj === 'object') {
-              // Chercher une extension avec url contenant 'policy-status' ou 'PolicyStatus'
-              if (obj.url && (obj.url.includes('policy-status') || obj.url.includes('PolicyStatus'))) {
-                console.log('🔍 Found policy-status extension:', JSON.stringify(obj, null, 2));
-                
-                // Le statut peut être dans valueCode, valueString, valueInteger, valueDecimal
-                if (obj.valueCode !== undefined) {
-                  // Mapper les codes textuels aux valeurs numériques AMG
-                  const codeMap: { [key: string]: number } = {
-                    'idle': 1,
-                    'active': 2,
-                    'suspended': 4,
-                    'expired': 8,
-                    'ready': 16
-                  };
-                  const code = obj.valueCode.toLowerCase();
-                  if (codeMap[code] !== undefined) {
-                    console.log(`✓ Found valueCode: "${obj.valueCode}" → PolicyStatus = ${codeMap[code]}`);
-                    return codeMap[code];
-                  }
-                }
-                if (obj.valueString !== undefined) {
-                  const str = obj.valueString.toLowerCase();
-                  if (str === 'active' || str === '2') return 2;
-                  if (str === 'idle' || str === '1') return 1;
-                  if (str === 'suspended' || str === '4') return 4;
-                  if (str === 'expired' || str === '8') return 8;
-                  if (str === 'ready' || str === '16') return 16;
-                  console.log(`✓ Found valueString: "${obj.valueString}"`);
-                }
-                if (obj.valueInteger !== undefined) {
-                  console.log(`✓ Found valueInteger: ${obj.valueInteger}`);
-                  return obj.valueInteger;
-                }
-                if (obj.valueDecimal !== undefined) {
-                  console.log(`✓ Found valueDecimal: ${obj.valueDecimal}`);
-                  return Math.floor(obj.valueDecimal);
-                }
-              }
-              
-              // Chercher dans les sous-extensions
-              if (obj.extension && Array.isArray(obj.extension)) {
-                for (const ext of obj.extension) {
-                  const found = findPolicyStatusValue(ext);
-                  if (found !== null) return found;
-                }
-              }
-              
-              // Chercher récursivement dans tous les objets
-              for (const key in obj) {
-                if (key !== 'extension') { // Éviter les doublons
-                  const found = findPolicyStatusValue(obj[key]);
-                  if (found !== null) return found;
-                }
-              }
-            }
-            
-            return null;
-          };
-          
-          policyStatusCode = findPolicyStatusValue(contract);
-          
-          if (policyStatusCode !== null) {
-            console.log('✅ POLICY STATUS CODE FOUND:', policyStatusCode);
-            console.log('   Mapping to AMG system:');
-            console.log('   1 = Idle (en attente)');
-            console.log('   2 = Active (couvert)');
-            console.log('   4 = Suspended (suspendu)');
-            console.log('   8 = Expired (expiré)');
-            console.log('   16 = Ready (prêt)');
+          if (finalStatus === 'active') {
+            console.log('   Patient has active insurance coverage');
+            console.log('   - Valid period confirmed');
+            console.log('   - Payment receipt confirmed');
           } else {
-            console.log('⚠️  PolicyStatus numérique NON trouvé dans les extensions');
-            console.log('   Fallback: utilisation de Contract.status textuel');
-          }
-          
-          // ÉTAPE 2: Vérifier la période de validité
-          let periodValid = false;
-          let periodStart = null;
-          let periodEnd = null;
-          
-          if (contract.term?.[0]?.asset?.[0]?.period?.[0]) {
-            periodStart = contract.term[0].asset[0].period[0].start;
-            periodEnd = contract.term[0].asset[0].period[0].end;
-            const startDate = new Date(periodStart);
-            const endDate = new Date(periodEnd);
-            const now = new Date();
-            periodValid = now >= startDate && now <= endDate;
-            console.log('📅 EffectiveDate:', periodStart);
-            console.log('📅 ExpiryDate:', periodEnd);
-            console.log('📅 Period valid:', periodValid);
-          }
-          
-          // ÉTAPE 3: Déterminer le statut final basé sur PolicyStatus ET la période
-          if (policyStatusCode !== null) {
-            // Utiliser le PolicyStatus numérique (valeur RÉELLE du système AMG)
-            if (policyStatusCode === 2 && periodValid) {
-              finalStatus = 'active';
-              console.log('✅ ASSURÉ COUVERT');
-              console.log(`   Raison: PolicyStatus = 2 (Active) ET période valide`);
-              console.log(`   Période: ${periodStart} à ${periodEnd}`);
-            } else {
-              finalStatus = 'inactive';
-              console.log('❌ ASSURÉ NON COUVERT');
-              if (policyStatusCode !== 2) {
-                console.log(`   Raison: PolicyStatus = ${policyStatusCode} (pas Active)`);
-                if (policyStatusCode === 1) console.log('   État: Idle (en attente)');
-                if (policyStatusCode === 4) console.log('   État: Suspended (suspendu)');
-                if (policyStatusCode === 8) console.log('   État: Expired (expiré)');
-                if (policyStatusCode === 16) console.log('   État: Ready (prêt)');
-              }
-              if (!periodValid) {
-                console.log('   Raison additionnelle: Période de validité expirée ou non commencée');
-                if (periodStart && periodEnd) {
-                  const now = new Date();
-                  const start = new Date(periodStart);
-                  const end = new Date(periodEnd);
-                  if (now < start) {
-                    console.log(`   Police pas encore effective (commence le ${periodStart})`);
-                  } else if (now > end) {
-                    console.log(`   Police expirée (terminée le ${periodEnd})`);
-                  }
-                }
-              }
-            }
-          } else {
-            // Fallback: utiliser Contract.status textuel si PolicyStatus numérique non trouvé
-            console.log('⚠️  Utilisation du fallback (Contract.status textuel)');
-            const statusLower = contract.status?.toLowerCase() || '';
-            console.log('📋 Contract.status:', contract.status);
-            
-            // CORRECTION CRITIQUE selon la doc openIMIS FHIR:
-            // - "offered" = proposition de contrat (PAS couvert, juste proposé)
-            // - "executed" = contrat activé et signé (assuré COUVERT)
-            // Seul "executed" signifie que l'assuré est vraiment couvert!
-            const isActiveStatus = statusLower === 'executed';
-            
-            if (isActiveStatus && periodValid) {
-              finalStatus = 'active';
-              console.log('✅ ASSURÉ COUVERT (basé sur Contract.status)');
-              console.log(`   Contract.status="${contract.status}" (executed) + période valide`);
-            } else {
-              finalStatus = 'inactive';
-              console.log('❌ ASSURÉ NON COUVERT (basé sur Contract.status)');
-              if (!isActiveStatus) {
-                console.log(`   Raison: Contract.status="${contract.status}" n'indique pas un contrat exécuté`);
-                if (statusLower === 'offered') {
-                  console.log('   "offered" = proposition seulement (pas encore activé)');
-                }
-              }
-              if (!periodValid) {
-                console.log('   Raison: Période de validité invalide');
-              }
-            }
+            console.log('   Patient has no active insurance coverage');
+            console.log('   - No valid contract with payment found');
           }
         } else {
-          console.error('❌ ERREUR: Aucun Contract trouvé dans les données AMG');
-          console.log('   Impossible de déterminer le statut de couverture');
+          // Fallback: old logic (should not happen with updated edge function)
+          console.log('⚠️  Coverage status not provided by edge function, using fallback');
+          finalStatus = 'inactive';
         }
         
         console.log('=== FINAL STATUS ===');
