@@ -68,6 +68,7 @@ const Login = () => {
 
       // If user doesn't exist, create account
       if (signInError) {
+        console.log('User does not exist, creating new account...');
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
@@ -90,6 +91,8 @@ const Login = () => {
           return;
         }
 
+        console.log('Account created successfully');
+
         // Le profil est créé automatiquement par le trigger
         // Mettre à jour avec les données complètes de l'AMG
         if (signUpData.user) {
@@ -102,6 +105,7 @@ const Login = () => {
             .eq('id', signUpData.user.id);
         }
       } else if (signInData.user) {
+        console.log('User signed in, updating profile...');
         // Update profile with latest data from AMG
         const { error: updateError } = await supabase
           .from('profiles')
@@ -118,6 +122,10 @@ const Login = () => {
       }
 
       console.log('Login successful, session created');
+      
+      // Vérifier que la session est bien établie
+      const { data: { session } } = await supabase.auth.getSession();
+      console.log('Session verification:', session ? 'Session OK' : 'No session');
       
       toast({
         title: "Connexion réussie",
