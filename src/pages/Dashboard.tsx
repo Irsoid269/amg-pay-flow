@@ -3,18 +3,62 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CreditCard, History, AlertCircle, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
 import logoAmg from "@/assets/logo-amg.png";
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [userName, setUserName] = useState("Ahmed Mohamed");
-  const insuranceNumber = localStorage.getItem("insuranceNumber") || "AMG-2025-001245";
+  const [userName, setUserName] = useState("Utilisateur");
+  const [insuranceNumber, setInsuranceNumber] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!localStorage.getItem("insuranceNumber")) {
-      navigate("/");
-    }
+    const checkAuth = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        navigate("/");
+        return;
+      }
+
+      // Get profile data
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching profile:', error);
+        toast({
+          title: "Erreur",
+          description: "Impossible de charger vos informations",
+          variant: "destructive",
+        });
+      } else if (profile) {
+        setUserName(profile.full_name || "Utilisateur");
+        setInsuranceNumber(profile.insurance_number);
+      }
+
+      setIsLoading(false);
+    };
+
+    checkAuth();
   }, [navigate]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate("/");
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-muted-foreground">Chargement...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
@@ -27,10 +71,7 @@ const Dashboard = () => {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => {
-                localStorage.removeItem("insuranceNumber");
-                navigate("/");
-              }}
+              onClick={handleLogout}
               className="text-primary-foreground hover:bg-turquoise/20 rounded-full"
             >
               <LogOut className="h-5 w-5" />
