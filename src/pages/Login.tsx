@@ -11,15 +11,6 @@ const Login = () => {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    // Force logout on mount to clear any stuck sessions
-    const clearSession = async () => {
-      await supabase.auth.signOut();
-      localStorage.clear();
-    };
-    clearSession();
-  }, []);
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -131,7 +122,10 @@ const Login = () => {
         description: `Bienvenue ${data.fullName}`,
       });
 
-      navigate("/dashboard");
+      // Attendre un court instant pour que la session soit établie
+      setTimeout(() => {
+        navigate("/dashboard");
+      }, 500);
     } catch (error) {
       console.error('Login error:', error);
       toast({
