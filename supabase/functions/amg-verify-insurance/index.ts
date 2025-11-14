@@ -1,4 +1,5 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.81.1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -31,6 +32,11 @@ Deno.serve(async (req) => {
     }
 
     console.log('Verifying insurance number:', insuranceNumber);
+
+    // Initialize Supabase client
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const username = Deno.env.get('AMG_API_USERNAME');
     const password = Deno.env.get('AMG_API_PASSWORD');
@@ -142,101 +148,28 @@ Deno.serve(async (req) => {
     
     console.log('Patient belongs to Group:', groupId);
 
-    // Step 4: PAGINATION LIMITÉE - 10 pages max pour éviter timeout client
-    console.log(`\n🔍 Starting pagination to find contract for Group ${groupId}...`);
+    // Step 4: RECHERCHE RAPIDE dans Supabase d'abord
+    console.log(`\n🔍 Searching for active contract in Supabase for Group ${groupId}...`);
     
-    let selectedContract = null;
-    let currentUrl: string | null = `https://dev.amg.km/api/api_fhir_r4/Contract/?_count=1000&_sort=-_lastUpdated`;
-    let pageNumber = 1;
-    let totalContractsScanned = 0;
-    let totalContracts = 0;
-    let foundGroupContract = false;
-    const MAX_PAGES = 10; // Limite à 10 pages (10,000 contrats) pour éviter timeout client
-    
-    while (currentUrl && !foundGroupContract && pageNumber <= MAX_PAGES) {
-      console.log(`\n📄 Page ${pageNumber}/${MAX_PAGES}: Fetching contracts...`);
-      
-      const contractResponse: Response = await fetch(currentUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-        },
-      });
-      
-      if (!contractResponse.ok) {
-        console.log(`❌ Contract API request failed: ${contractResponse.status}`);
-        break;
-      }
-      
-      const contractData: any = await contractResponse.json();
-      const contractsInPage = contractData.entry?.length || 0;
-      totalContractsScanned += contractsInPage;
-      totalContracts = contractData.total || 0;
-      
-      console.log(`✅ Page ${pageNumber}: Retrieved ${contractsInPage} contracts`);
-      console.log(`📊 Progress: ${totalContractsScanned} / ${totalContracts} (${Math.round(totalContractsScanned/totalContracts*100)}%)`);
-      
-      // Search for active contracts in this page
-      if (contractData.entry && contractData.entry.length > 0) {
-        const activeContracts = contractData.entry.filter((entry: any) => {
-          const contract = entry.resource;
-          const contractSubject = contract.subject?.[0]?.reference || '';
-          
-          if (!contractSubject.includes(groupId)) {
-            return false;
-          }
-          
-          const period = contract.term?.[0]?.asset?.[0]?.period?.[0];
-          let periodValid = false;
-          if (period) {
-            const now = new Date();
-            const start = new Date(period.start);
-            const end = new Date(period.end);
-            periodValid = now >= start && now <= end;
-          }
-          
-          let hasPayment = false;
-          const premiumExt = contract.term?.[0]?.asset?.[0]?.extension?.find(
-            (ext: any) => ext.url === 'https://openimis.github.io/openimis_fhir_r4_ig/StructureDefinition/contract-premium'
-          );
-          if (premiumExt?.extension) {
-            const receiptExt = premiumExt.extension.find((ext: any) => ext.url === 'receipt');
-            if (receiptExt?.valueString) {
-              hasPayment = true;
-            }
-          }
-          
-          return periodValid && hasPayment;
-        });
-        
-        if (activeContracts.length > 0) {
-          console.log(`✅ FOUND ${activeContracts.length} active contract(s) for Group ${groupId}!`);
-          selectedContract = activeContracts[0];
-          foundGroupContract = true;
-          break;
-        }
-      }
-      
-      // Get next page URL
-      const nextLink: any = contractData.link?.find((link: any) => link.relation === 'next');
-      if (nextLink) {
-        currentUrl = decodeURIComponent(nextLink.url).replace(/^https%3A%2F%2F/, 'https://');
-        pageNumber++;
-      } else {
-        console.log(`📍 Reached end of pagination`);
-        currentUrl = null;
-      }
+    const { data: contractsFromDb, error: dbError } = await supabase
+      .from('amg_contracts')
+      .select('*')
+      .eq('group_id', groupId)
+      .eq('is_active', true)
+      .order('last_updated', { ascending: false })
+      .limit(1);
+
+    let selectedContract: any = null;
+    let contractDataForResponse: any = { entry: [] };
+
+    if (!dbError && contractsFromDb && contractsFromDb.length > 0) {
+      console.log('✅ Found active contract in Supabase database!');
+      selectedContract = { resource: contractsFromDb[0].contract_data };
+      contractDataForResponse = { entry: [selectedContract] };
+    } else {
+      console.log('⚠️ No active contract found in Supabase');
+      console.log('💡 Tip: Run the sync function to populate the database with AMG contracts');
     }
-    
-    if (pageNumber > MAX_PAGES) {
-      console.log(`⚠️ Reached page limit (${MAX_PAGES} pages, ${totalContractsScanned} contracts scanned)`);
-      console.log(`   Contract may exist but wasn't found in recent contracts`);
-    }
-    
-    console.log(`\n📊 Pagination complete: Scanned ${totalContractsScanned} / ${totalContracts} contracts`);
-    
-    const contractDataForResponse = selectedContract ? { entry: [selectedContract] } : { entry: [] };
 
     // Step 5: Get insurance plan
     let insurancePlanData = null;
