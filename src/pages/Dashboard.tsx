@@ -377,21 +377,24 @@ const Dashboard = () => {
             const statusLower = contract.status?.toLowerCase() || '';
             console.log('📋 Contract.status:', contract.status);
             
-            const isActiveStatus = (
-              statusLower === 'offered' || 
-              statusLower === 'policy' || 
-              statusLower === 'executed'
-            );
+            // CORRECTION CRITIQUE selon la doc openIMIS FHIR:
+            // - "offered" = proposition de contrat (PAS couvert, juste proposé)
+            // - "executed" = contrat activé et signé (assuré COUVERT)
+            // Seul "executed" signifie que l'assuré est vraiment couvert!
+            const isActiveStatus = statusLower === 'executed';
             
             if (isActiveStatus && periodValid) {
               finalStatus = 'active';
               console.log('✅ ASSURÉ COUVERT (basé sur Contract.status)');
-              console.log(`   Contract.status="${contract.status}" + période valide`);
+              console.log(`   Contract.status="${contract.status}" (executed) + période valide`);
             } else {
               finalStatus = 'inactive';
               console.log('❌ ASSURÉ NON COUVERT (basé sur Contract.status)');
               if (!isActiveStatus) {
-                console.log(`   Raison: Contract.status="${contract.status}" n'indique pas un état actif`);
+                console.log(`   Raison: Contract.status="${contract.status}" n'indique pas un contrat exécuté`);
+                if (statusLower === 'offered') {
+                  console.log('   "offered" = proposition seulement (pas encore activé)');
+                }
               }
               if (!periodValid) {
                 console.log('   Raison: Période de validité invalide');
