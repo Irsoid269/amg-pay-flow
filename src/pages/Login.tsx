@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,12 +16,12 @@ const Login = () => {
     setIsLoading(true);
 
     try {
-      // Call Edge Function to verify insurance number with AMG API
+      console.log('Verifying insurance number with AMG API...');
+      
+      // Appel à l'edge function pour vérifier le numéro d'assurance
       const { data, error } = await supabase.functions.invoke('amg-verify-insurance', {
-        body: { insuranceNumber }
+        body: { insuranceNumber },
       });
-
-      console.log('Edge function response:', { data, error });
 
       if (error) {
         console.error('Edge function error:', error);
@@ -56,105 +56,24 @@ const Login = () => {
         return;
       }
 
-      // Create or sign in user with Supabase Auth
-      const email = `${insuranceNumber}@amg.km`;
-      const password = insuranceNumber; // Use insurance number as password
-
-      // Try to sign in first
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      // If user doesn't exist, create account
-      if (signInError) {
-        console.log('User does not exist, creating new account...');
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              insurance_number: insuranceNumber,
-              full_name: data.fullName,
-            },
-            emailRedirectTo: undefined, // Pas de confirmation email nécessaire
-          },
-        });
-
-        if (signUpError) {
-          console.error('Sign up error:', signUpError);
-          toast({
-            title: "Erreur",
-            description: "Impossible de créer le compte",
-            variant: "destructive",
-          });
-          setIsLoading(false);
-          return;
-        }
-
-        console.log('Account created successfully');
-
-        // Maintenant on se connecte explicitement
-        console.log('Signing in with new account...');
-        const { data: newSignInData, error: newSignInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
-        if (newSignInError) {
-          console.error('Sign in after signup error:', newSignInError);
-          toast({
-            title: "Erreur",
-            description: "Compte créé mais connexion impossible",
-            variant: "destructive",
-          });
-          setIsLoading(false);
-          return;
-        }
-
-        console.log('Sign in after signup successful');
-
-        // Le profil est créé automatiquement par le trigger
-        // Mettre à jour avec les données complètes de l'AMG
-        if (newSignInData.user) {
-          await supabase
-            .from('profiles')
-            .update({
-              patient_data: data.patientData,
-              coverage_data: data.coverageData,
-            })
-            .eq('id', newSignInData.user.id);
-        }
-      } else if (signInData.user) {
-        console.log('User signed in, updating profile...');
-        // Update profile with latest data from AMG
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({
-            patient_data: data.patientData,
-            coverage_data: data.coverageData,
-            full_name: data.fullName,
-          })
-          .eq('id', signInData.user.id);
-
-        if (updateError) {
-          console.error('Profile update error:', updateError);
-        }
-      }
-
-      console.log('Login successful, session created');
+      // Si l'assuré existe, on stocke les données et on redirige directement
+      console.log('Assuré trouvé, redirection vers le dashboard...');
       
-      // Vérifier que la session est bien établie
-      const { data: { session } } = await supabase.auth.getSession();
-      console.log('Session verification:', session ? 'Session OK' : 'No session');
-      
+      // Stocker les données de l'assuré dans le localStorage
+      localStorage.setItem('amg_insurance_data', JSON.stringify({
+        insuranceNumber,
+        fullName: data.fullName,
+        patientData: data.patientData,
+        coverageData: data.coverageData,
+        timestamp: Date.now(),
+      }));
+
       toast({
         title: "Connexion réussie",
         description: `Bienvenue ${data.fullName}`,
       });
 
-      // Navigation immédiate avec replace pour éviter les boucles
-      console.log('Navigating to dashboard...');
+      // Redirection immédiate vers le dashboard
       navigate("/dashboard", { replace: true });
     } catch (error) {
       console.error('Login error:', error);
