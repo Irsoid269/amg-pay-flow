@@ -315,59 +315,37 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Determine coverage status based on Coverage resource (patient-specific) AND contract
-    // Coverage.status indicates if THIS SPECIFIC PATIENT is covered
+    // Determine coverage status based on GROUP/FAMILY contract status
+    // In AMG system: ALL members of a family are covered if the FAMILY has an active contract
+    // Individual patient status doesn't matter - it's the FAMILY's contract that determines coverage
     let coverageStatus = 'inactive';
     
     console.log(`\n=== DETERMINING COVERAGE STATUS FOR PATIENT ${insuranceNumber} ===`);
+    console.log(`Patient belongs to Group/Family: ${groupId}`);
     
-    // Step 1: Check Coverage.status (patient-specific coverage status)
-    if (coverageData?.entry?.[0]?.resource?.status) {
-      const coverageResourceStatus = coverageData.entry[0].resource.status;
-      console.log(`📋 Coverage.status for patient: "${coverageResourceStatus}"`);
+    // Check if the GROUP/FAMILY has an active contract
+    const familyHasActiveContract = contractData?.entry?.length > 0;
+    
+    if (familyHasActiveContract) {
+      const contract = contractData.entry[0].resource;
+      const contractId = contract.identifier?.[1]?.value || contract.identifier?.[0]?.value;
+      const period = contract.term?.[0]?.asset?.[0]?.period?.[0];
       
-      // Coverage.status values: active | cancelled | draft | entered-in-error
-      // Only "active" means the patient is currently covered
-      if (coverageResourceStatus === 'active') {
-        // Step 2: Verify the contract is also valid
-        const hasValidContract = contractData?.entry?.length > 0;
-        
-        if (hasValidContract) {
-          const contract = contractData.entry[0].resource;
-          const period = contract.term?.[0]?.asset?.[0]?.period?.[0];
-          
-          // Verify period is still valid
-          let periodValid = false;
-          if (period) {
-            const now = new Date();
-            const start = new Date(period.start);
-            const end = new Date(period.end);
-            periodValid = now >= start && now <= end;
-          }
-          
-          if (periodValid) {
-            coverageStatus = 'active';
-            console.log('✅ PATIENT IS COVERED');
-            console.log(`   Reason: Coverage.status="active" AND contract period is valid`);
-            console.log(`   Period: ${period?.start} to ${period?.end}`);
-          } else {
-            console.log('❌ PATIENT IS NOT COVERED');
-            console.log(`   Reason: Coverage.status="active" BUT contract period is expired/not started`);
-          }
-        } else {
-          console.log('❌ PATIENT IS NOT COVERED');
-          console.log(`   Reason: Coverage.status="active" BUT no valid contract found`);
-        }
-      } else {
-        console.log('❌ PATIENT IS NOT COVERED');
-        console.log(`   Reason: Coverage.status="${coverageResourceStatus}" (not active)`);
-      }
+      console.log(`✅ FAMILY HAS ACTIVE CONTRACT`);
+      console.log(`   Contract ID: ${contractId}`);
+      console.log(`   Period: ${period?.start} to ${period?.end}`);
+      console.log(`   → ALL FAMILY MEMBERS ARE COVERED (including patient ${insuranceNumber})`);
+      
+      coverageStatus = 'active';
     } else {
-      console.log('❌ PATIENT IS NOT COVERED');
-      console.log(`   Reason: No Coverage resource found for this patient`);
+      console.log(`❌ FAMILY HAS NO ACTIVE CONTRACT`);
+      console.log(`   → ALL FAMILY MEMBERS ARE NOT COVERED (including patient ${insuranceNumber})`);
+      console.log(`   Reason: No contract found with valid period AND payment receipt for Group ${groupId}`);
+      
+      coverageStatus = 'inactive';
     }
     
-    console.log(`\n📊 Final coverage status for ${insuranceNumber}: ${coverageStatus.toUpperCase()}`);
+    console.log(`\n📊 Final coverage status for patient ${insuranceNumber}: ${coverageStatus.toUpperCase()}`);
 
     return new Response(
       JSON.stringify({
