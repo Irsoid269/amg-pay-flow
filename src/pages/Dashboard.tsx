@@ -14,47 +14,38 @@ const Dashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const checkAuth = async () => {
+    const checkAuth = () => {
       try {
         console.log('Dashboard - Checking authentication...');
         
-        // Utiliser getSession au lieu de getUser pour vérifier la session
-        const { data: { session } } = await supabase.auth.getSession();
+        // Vérifier si les données d'assurance sont dans le localStorage
+        const storedData = localStorage.getItem('amg_insurance_data');
         
-        if (!session) {
-          console.log('Dashboard - No session found, redirecting to login');
+        if (!storedData) {
+          console.log('Dashboard - No insurance data, redirecting to login');
           navigate("/", { replace: true });
           return;
         }
 
-        console.log('Dashboard - Session found for user:', session.user.id);
-
-        // Get profile data
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .maybeSingle();
-
-        if (error) {
-          console.error('Dashboard - Error fetching profile:', error);
-          toast({
-            title: "Erreur",
-            description: "Impossible de charger vos informations",
-            variant: "destructive",
-          });
-        } else if (profile) {
-          console.log('Dashboard - Profile loaded successfully');
-          setUserName(profile.full_name || "Utilisateur");
-          setInsuranceNumber(profile.insurance_number);
-        } else {
-          console.log('Dashboard - No profile found for user');
-        }
+        const insuranceData = JSON.parse(storedData);
         
+        // Vérifier que les données ne sont pas trop anciennes (24h)
+        const maxAge = 24 * 60 * 60 * 1000; // 24 heures
+        if (Date.now() - insuranceData.timestamp > maxAge) {
+          console.log('Dashboard - Data expired, redirecting to login');
+          localStorage.removeItem('amg_insurance_data');
+          navigate("/", { replace: true });
+          return;
+        }
+
+        console.log('Dashboard - Data loaded:', insuranceData);
+
+        setUserName(insuranceData.fullName || 'Utilisateur');
+        setInsuranceNumber(insuranceData.insuranceNumber || '');
         setIsLoading(false);
       } catch (error) {
         console.error('Dashboard - Auth check error:', error);
-        setIsLoading(false);
+        localStorage.removeItem('amg_insurance_data');
         navigate("/", { replace: true });
       }
     };
@@ -62,9 +53,9 @@ const Dashboard = () => {
     checkAuth();
   }, [navigate]);
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
     console.log('Logging out...');
-    await supabase.auth.signOut();
+    localStorage.removeItem('amg_insurance_data');
     navigate("/", { replace: true });
   };
 
