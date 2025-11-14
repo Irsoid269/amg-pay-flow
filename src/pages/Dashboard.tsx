@@ -15,36 +15,55 @@ const Dashboard = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        navigate("/");
-        return;
-      }
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (!user) {
+          navigate("/");
+          return;
+        }
 
-      // Get profile data
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .maybeSingle();
+        // Get profile data
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .maybeSingle();
 
-      if (error) {
-        console.error('Error fetching profile:', error);
+        if (error) {
+          console.error('Error fetching profile:', error);
+          toast({
+            title: "Erreur",
+            description: "Impossible de charger vos informations",
+            variant: "destructive",
+          });
+        } else if (profile) {
+          setUserName(profile.full_name || "Utilisateur");
+          setInsuranceNumber(profile.insurance_number);
+        }
+      } catch (error) {
+        console.error('Auth check error:', error);
         toast({
           title: "Erreur",
-          description: "Impossible de charger vos informations",
+          description: "Erreur de connexion",
           variant: "destructive",
         });
-      } else if (profile) {
-        setUserName(profile.full_name || "Utilisateur");
-        setInsuranceNumber(profile.insurance_number);
+        navigate("/");
+      } finally {
+        setIsLoading(false);
       }
-
-      setIsLoading(false);
     };
 
-    checkAuth();
+    // Set a timeout to prevent infinite loading
+    const timeout = setTimeout(() => {
+      console.error('Auth check timeout');
+      setIsLoading(false);
+      navigate("/");
+    }, 10000);
+
+    checkAuth().then(() => clearTimeout(timeout));
+
+    return () => clearTimeout(timeout);
   }, [navigate]);
 
   const handleLogout = async () => {
