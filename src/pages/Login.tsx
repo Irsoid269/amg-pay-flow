@@ -77,6 +77,7 @@ const Login = () => {
               insurance_number: insuranceNumber,
               full_name: data.fullName,
             },
+            emailRedirectTo: undefined, // Pas de confirmation email nécessaire
           },
         });
 
@@ -93,16 +94,36 @@ const Login = () => {
 
         console.log('Account created successfully');
 
+        // Maintenant on se connecte explicitement
+        console.log('Signing in with new account...');
+        const { data: newSignInData, error: newSignInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (newSignInError) {
+          console.error('Sign in after signup error:', newSignInError);
+          toast({
+            title: "Erreur",
+            description: "Compte créé mais connexion impossible",
+            variant: "destructive",
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        console.log('Sign in after signup successful');
+
         // Le profil est créé automatiquement par le trigger
         // Mettre à jour avec les données complètes de l'AMG
-        if (signUpData.user) {
+        if (newSignInData.user) {
           await supabase
             .from('profiles')
             .update({
               patient_data: data.patientData,
               coverage_data: data.coverageData,
             })
-            .eq('id', signUpData.user.id);
+            .eq('id', newSignInData.user.id);
         }
       } else if (signInData.user) {
         console.log('User signed in, updating profile...');
