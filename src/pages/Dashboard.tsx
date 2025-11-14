@@ -53,34 +53,52 @@ const Dashboard = () => {
         let amount = '3 000';
         let paymentFrequency = 'mensuelle';
         
-        // Stratégie 1: Essayer de récupérer depuis le Contract (FHIR Contract resource)
+        // Fonction récursive pour chercher tous les montants dans un objet
+        const findAllAmounts = (obj: any, path = '', results: any[] = []): any[] => {
+          if (obj === null || obj === undefined) return results;
+          
+          if (typeof obj === 'object') {
+            // Chercher les champs de type Money ou montants
+            if (obj.value !== undefined && typeof obj.value === 'number') {
+              results.push({ path, value: obj.value, currency: obj.currency });
+            }
+            if (obj.valueMoney !== undefined) {
+              results.push({ path: path + '.valueMoney', ...obj.valueMoney });
+            }
+            
+            // Parcourir récursivement
+            Object.keys(obj).forEach(key => {
+              const newPath = path ? `${path}.${key}` : key;
+              findAllAmounts(obj[key], newPath, results);
+            });
+          }
+          
+          return results;
+        };
+        
+        console.log('=== SEARCHING FOR ALL AMOUNTS IN ALL FHIR RESOURCES ===');
+        
+        // Stratégie 1: Explorer complètement le Contract
         if (insuranceData.contractData?.entry?.[0]?.resource) {
           const contract = insuranceData.contractData.entry[0].resource;
-          console.log('=== CONTRACT ANALYSIS ===');
-          console.log('Full Contract:', JSON.stringify(contract, null, 2));
+          console.log('📋 CONTRACT - Searching all amounts...');
+          
+          const contractAmounts = findAllAmounts(contract, 'contract');
+          console.log('All amounts found in Contract:', contractAmounts);
           
           // Essayer term[0].asset[0].extension pour trouver l'amount
           if (contract.term?.[0]?.asset?.[0]?.extension) {
-            console.log('Contract extensions:', JSON.stringify(contract.term[0].asset[0].extension, null, 2));
-            
             const premiumExtension = contract.term[0].asset[0].extension.find(
               (ext: any) => ext.url === 'https://openimis.github.io/openimis_fhir_r4_ig/StructureDefinition/contract-premium'
             );
             
             if (premiumExtension?.extension) {
-              console.log('Premium extension found:', JSON.stringify(premiumExtension, null, 2));
-              
-              // Chercher tous les montants possibles
-              premiumExtension.extension.forEach((ext: any) => {
-                if (ext.valueMoney) {
-                  console.log(`Found money field at ${ext.url}:`, ext.valueMoney.value);
-                }
-              });
+              console.log('Premium extension details:', JSON.stringify(premiumExtension, null, 2));
               
               const amountExt = premiumExtension.extension.find((ext: any) => ext.url === 'amount');
               if (amountExt?.valueMoney?.value) {
                 amount = new Intl.NumberFormat('fr-FR').format(amountExt.valueMoney.value);
-                console.log('✓ Amount from contract.term.asset.extension (premium):', amount, 'KMF');
+                console.log('✓ Using amount from contract.premium:', amount, 'KMF');
               }
             }
           }
@@ -88,33 +106,46 @@ const Dashboard = () => {
           // Essayer term[0].asset[0].valuedItem[0].net
           if (contract.term?.[0]?.asset?.[0]?.valuedItem?.[0]?.net?.value) {
             const netAmount = contract.term[0].asset[0].valuedItem[0].net.value;
-            console.log('Found valuedItem.net.value:', netAmount, 'KMF');
-            
-            if (amount === '3 000') {
-              amount = new Intl.NumberFormat('fr-FR').format(netAmount);
-              console.log('✓ Amount from contract.term.asset.valuedItem.net:', amount, 'KMF');
-            }
+            console.log('Contract valuedItem.net.value:', netAmount, 'KMF');
           }
-          
-          console.log('=== END CONTRACT ANALYSIS ===');
         }
         
-        // Stratégie 2: Essayer de récupérer depuis l'InsurancePlan (FHIR InsurancePlan resource)
-        if (amount === '3 000' && insuranceData.insurancePlanData?.entry?.[0]?.resource) {
-          const plan = insuranceData.insurancePlanData.entry[0].resource;
-          console.log('InsurancePlan resource found:', plan);
+        // Stratégie 2: Explorer complètement le Coverage
+        if (insuranceData.coverageData?.entry) {
+          console.log('📄 COVERAGE - Searching all amounts...');
           
-          // Essayer plan[0].specificCost[0].benefit[0].cost[0]
-          if (plan.plan?.[0]?.specificCost?.[0]?.benefit?.[0]?.cost?.[0]?.value?.value) {
-            amount = new Intl.NumberFormat('fr-FR').format(plan.plan[0].specificCost[0].benefit[0].cost[0].value.value);
-            console.log('Amount from plan.specificCost:', amount);
-          }
-          // Essayer generalCost
-          else if (plan.plan?.[0]?.generalCost?.[0]?.cost?.value) {
-            amount = new Intl.NumberFormat('fr-FR').format(plan.plan[0].generalCost[0].cost.value);
-            console.log('Amount from plan.generalCost:', amount);
-          }
+          insuranceData.coverageData.entry.forEach((entry: any, index: number) => {
+            const coverage = entry.resource;
+            const coverageAmounts = findAllAmounts(coverage, `coverage[${index}]`);
+            if (coverageAmounts.length > 0) {
+              console.log(`Coverage[${index}] amounts:`, coverageAmounts);
+            }
+          });
         }
+        
+        // Stratégie 3: Explorer complètement l'InsurancePlan
+        if (insuranceData.insurancePlanData?.entry) {
+          console.log('📦 INSURANCE PLAN - Searching all amounts...');
+          
+          insuranceData.insurancePlanData.entry.forEach((entry: any, index: number) => {
+            const plan = entry.resource;
+            console.log(`Insurance Plan[${index}] name:`, plan.name);
+            
+            const planAmounts = findAllAmounts(plan, `plan[${index}]`);
+            if (planAmounts.length > 0) {
+              console.log(`Insurance Plan[${index}] amounts:`, planAmounts);
+            }
+            
+            // Spécifiquement chercher dans les coûts
+            if (plan.plan?.[0]) {
+              console.log(`Plan[${index}] generalCost:`, plan.plan[0].generalCost);
+              console.log(`Plan[${index}] specificCost:`, plan.plan[0].specificCost);
+            }
+          });
+        }
+        
+        console.log('=== END OF AMOUNT SEARCH ===');
+        console.log('Current amount being used:', amount, 'KMF');
 
         setPaymentAmount(amount);
         setPaymentType(paymentFrequency);
