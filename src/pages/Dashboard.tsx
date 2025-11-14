@@ -12,6 +12,9 @@ const Dashboard = () => {
   const [userName, setUserName] = useState("Utilisateur");
   const [insuranceNumber, setInsuranceNumber] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [paymentAmount, setPaymentAmount] = useState("0");
+  const [coverageStatus, setCoverageStatus] = useState("inactive");
+  const [paymentType, setPaymentType] = useState("mensuelle");
 
   useEffect(() => {
     const checkAuth = () => {
@@ -42,6 +45,27 @@ const Dashboard = () => {
 
         setUserName(insuranceData.fullName || 'Utilisateur');
         setInsuranceNumber(insuranceData.insuranceNumber || '');
+        
+        // Extraire les informations de couverture depuis coverageData
+        if (insuranceData.coverageData && insuranceData.coverageData.entry) {
+          const entries = insuranceData.coverageData.entry;
+          
+          if (entries.length > 0) {
+            const latestCoverage = entries[0].resource;
+            
+            // Statut de la couverture
+            const status = latestCoverage.status || 'draft';
+            setCoverageStatus(status === 'active' ? 'active' : 'inactive');
+            
+            // Trouver le montant à payer (ici on utilise 3000 KMF comme montant fixe pour la cotisation mensuelle)
+            // Dans un vrai système, cela viendrait d'un champ spécifique de l'API
+            setPaymentAmount('3 000');
+            setPaymentType('mensuelle');
+            
+            console.log('Coverage status:', status);
+          }
+        }
+        
         setIsLoading(false);
       } catch (error) {
         console.error('Dashboard - Auth check error:', error);
@@ -97,23 +121,41 @@ const Dashboard = () => {
                 <p className="text-sm text-muted-foreground font-medium">Numéro d'assurance</p>
                 <p className="text-lg font-bold text-primary">{insuranceNumber}</p>
               </div>
-              <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-warning/10 text-warning text-sm font-semibold border border-warning/20">
+              <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold border ${
+                coverageStatus === 'active' 
+                  ? 'bg-success/10 text-success border-success/20' 
+                  : 'bg-warning/10 text-warning border-warning/20'
+              }`}>
                 <AlertCircle className="w-4 h-4" />
-                Inactif
+                {coverageStatus === 'active' ? 'Actif' : 'Inactif'}
               </div>
             </div>
 
             <div className="pt-4 border-t border-turquoise/20">
               <p className="text-sm text-muted-foreground mb-2 font-medium">Montant à payer</p>
-              <p className="text-4xl font-bold bg-gradient-to-r from-primary to-turquoise bg-clip-text text-transparent">3 000 KMF</p>
-              <p className="text-sm text-muted-foreground mt-2">Cotisation mensuelle</p>
+              <p className="text-4xl font-bold bg-gradient-to-r from-primary to-turquoise bg-clip-text text-transparent">{paymentAmount} KMF</p>
+              <p className="text-sm text-muted-foreground mt-2">Cotisation {paymentType}</p>
             </div>
 
-            <div className="pt-3 flex items-start gap-3 p-3 bg-destructive/5 border border-destructive/20 rounded-xl">
-              <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
+            <div className={`pt-3 flex items-start gap-3 p-3 border rounded-xl ${
+              coverageStatus === 'active'
+                ? 'bg-success/5 border-success/20'
+                : 'bg-destructive/5 border-destructive/20'
+            }`}>
+              <AlertCircle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
+                coverageStatus === 'active' ? 'text-success' : 'text-destructive'
+              }`} />
               <div>
-                <p className="text-sm font-semibold text-destructive">Couverture inactive</p>
-                <p className="text-xs text-destructive/80 mt-0.5">En attente de paiement</p>
+                <p className={`text-sm font-semibold ${
+                  coverageStatus === 'active' ? 'text-success' : 'text-destructive'
+                }`}>
+                  {coverageStatus === 'active' ? 'Couverture active' : 'Couverture inactive'}
+                </p>
+                <p className={`text-xs mt-0.5 ${
+                  coverageStatus === 'active' ? 'text-success/80' : 'text-destructive/80'
+                }`}>
+                  {coverageStatus === 'active' ? 'Votre couverture est à jour' : 'En attente de paiement'}
+                </p>
               </div>
             </div>
           </div>
