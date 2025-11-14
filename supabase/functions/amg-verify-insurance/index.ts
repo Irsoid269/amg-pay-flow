@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
     
     console.log('Patient belongs to Group:', groupId);
 
-    // Step 4: PAGINATION LIMITÉE - Parcourir les contrats récents (timeout à 20 pages max)
+    // Step 4: PAGINATION LIMITÉE - 10 pages max pour éviter timeout client
     console.log(`\n🔍 Starting pagination to find contract for Group ${groupId}...`);
     
     let selectedContract = null;
@@ -151,7 +151,7 @@ Deno.serve(async (req) => {
     let totalContractsScanned = 0;
     let totalContracts = 0;
     let foundGroupContract = false;
-    const MAX_PAGES = 20; // Limite à 20 pages (20,000 contrats) pour éviter timeout
+    const MAX_PAGES = 10; // Limite à 10 pages (10,000 contrats) pour éviter timeout client
     
     while (currentUrl && !foundGroupContract && pageNumber <= MAX_PAGES) {
       console.log(`\n📄 Page ${pageNumber}/${MAX_PAGES}: Fetching contracts...`);
