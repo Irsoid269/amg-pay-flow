@@ -78,10 +78,40 @@ const Dashboard = () => {
         
         console.log('=== SEARCHING FOR ALL AMOUNTS IN ALL FHIR RESOURCES ===');
         
-        // Stratégie 1: Explorer complètement le Contract
+        // Stratégie 1: Explorer complètement le Contract et chercher PolicyStatus
         if (insuranceData.contractData?.entry?.[0]?.resource) {
           const contract = insuranceData.contractData.entry[0].resource;
-          console.log('📋 CONTRACT - Searching all amounts...');
+          console.log('📋 CONTRACT - Searching all amounts and PolicyStatus...');
+          
+          // Chercher PolicyStatus dans les extensions
+          const findPolicyStatus = (obj: any, path = ''): any => {
+            if (obj === null || obj === undefined) return null;
+            
+            if (typeof obj === 'object') {
+              // Chercher des extensions avec PolicyStatus
+              if (obj.url && obj.url.includes('policy-status')) {
+                console.log('Found policy-status extension:', obj);
+                return obj;
+              }
+              if (obj.extension && Array.isArray(obj.extension)) {
+                for (const ext of obj.extension) {
+                  const found = findPolicyStatus(ext, path + '.extension');
+                  if (found) return found;
+                }
+              }
+              // Chercher récursivement
+              for (const key in obj) {
+                const found = findPolicyStatus(obj[key], path ? `${path}.${key}` : key);
+                if (found) return found;
+              }
+            }
+            return null;
+          };
+          
+          const policyStatusExt = findPolicyStatus(contract);
+          if (policyStatusExt) {
+            console.log('PolicyStatus extension found:', policyStatusExt);
+          }
           
           const contractAmounts = findAllAmounts(contract, 'contract');
           console.log('All amounts found in Contract:', contractAmounts);
@@ -154,42 +184,83 @@ const Dashboard = () => {
         
         // === MAPPING OFFICIEL openIMIS FHIR ===
         // tblPolicy → Contract (ressource FHIR)
-        // tblPolicy.PolicyStatus → Contract.status
-        // tblPolicy.PolicyValue → Contract.term[0].asset[0].valuedItem[0].net.value
-        // Contract.status valeurs: "offered" (offert/actif) ou "executed" (exécuté/actif)
+        // tblPolicy.PolicyStatus (NUMERIC) → Contract.status (TEXT)
+        //   PolicyStatus codes openIMIS:
+        //   1 = Idle (en attente)
+        //   2 = Active (actif)
+        //   4 = Suspended (suspendu)
+        //   8 = Expired (expiré)
+        //   16 = Ready (prêt)
+        // 
+        // Contract.status mapping:
+        //   "offered" = police proposée/active (PolicyStatus=2)
+        //   "policy" = police active (PolicyStatus=2)
+        //   "executed" = police exécutée (PolicyStatus=2)
+        //   "cancelled" = police annulée
+        //   "terminated" = police terminée
         console.log('=== DETERMINING POLICY STATUS (tblPolicy.PolicyStatus) ===');
         
         let finalStatus = 'inactive';
         
         if (insuranceData.contractData?.entry?.[0]?.resource) {
           const contract = insuranceData.contractData.entry[0].resource;
-          console.log('📋 Contract.status (tblPolicy.PolicyStatus):', contract.status);
+          console.log('📋 Contract.status (maps to tblPolicy.PolicyStatus):', contract.status);
           
           // Vérifier période de validité (tblPolicy.EffectiveDate / ExpiryDate)
           let periodValid = false;
+          let periodStart = null;
+          let periodEnd = null;
+          
           if (contract.term?.[0]?.asset?.[0]?.period?.[0]) {
-            const startDate = new Date(contract.term[0].asset[0].period[0].start);
-            const endDate = new Date(contract.term[0].asset[0].period[0].end);
+            periodStart = contract.term[0].asset[0].period[0].start;
+            periodEnd = contract.term[0].asset[0].period[0].end;
+            const startDate = new Date(periodStart);
+            const endDate = new Date(periodEnd);
             const now = new Date();
             periodValid = now >= startDate && now <= endDate;
-            console.log('📅 Period:', contract.term[0].asset[0].period[0].start, 'to', contract.term[0].asset[0].period[0].end);
+            console.log('📅 EffectiveDate:', periodStart);
+            console.log('📅 ExpiryDate:', periodEnd);
             console.log('📅 Period valid:', periodValid);
           }
           
-          // LOGIQUE OFFICIELLE openIMIS:
-          // Contract.status = "offered" OU "executed" + période valide = Police ACTIVE
+          // LOGIQUE OFFICIELLE openIMIS pour déterminer le statut de l'assuré:
+          // 1. Contract.status doit indiquer une police active
+          // 2. La période doit être valide (entre EffectiveDate et ExpiryDate)
+          // 3. Contract.status "offered" ou "policy" ou "executed" = PolicyStatus=2 (Active)
+          
           const statusLower = contract.status?.toLowerCase() || '';
-          if ((statusLower === 'offered' || statusLower === 'executed') && periodValid) {
+          
+          // Déterminer si la police est dans un état actif selon le système AMG
+          const isActiveStatus = (
+            statusLower === 'offered' || 
+            statusLower === 'policy' || 
+            statusLower === 'executed'
+          );
+          
+          if (isActiveStatus && periodValid) {
             finalStatus = 'active';
-            console.log('✅ POLICY STATUS: ACTIVE');
-            console.log(`   Reason: Contract.status="${contract.status}" + valid period`);
+            console.log('✅ POLICY STATUS: ACTIVE (tblPolicy.PolicyStatus=2)');
+            console.log(`   Contract.status="${contract.status}" (active state in AMG system)`);
+            console.log(`   Period valid: ${periodStart} to ${periodEnd}`);
           } else {
             finalStatus = 'inactive';
             console.log('❌ POLICY STATUS: INACTIVE');
+            if (!isActiveStatus) {
+              console.log(`   Reason: Contract.status="${contract.status}" indicates inactive state in AMG system`);
+              console.log(`   (not offered/policy/executed = PolicyStatus is not 2)`);
+            }
             if (!periodValid) {
               console.log('   Reason: Period expired or not yet started');
-            } else {
-              console.log(`   Reason: Contract.status="${contract.status}" (not offered/executed)`);
+              if (periodStart && periodEnd) {
+                const now = new Date();
+                const start = new Date(periodStart);
+                const end = new Date(periodEnd);
+                if (now < start) {
+                  console.log(`   Policy not yet effective (starts ${periodStart})`);
+                } else if (now > end) {
+                  console.log(`   Policy expired (ended ${periodEnd})`);
+                }
+              }
             }
           }
           
