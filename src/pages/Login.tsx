@@ -18,7 +18,7 @@ const Login = () => {
     try {
       console.log('Verifying insurance number with AMG API...');
       
-      // Appel à l'edge function pour vérifier le numéro d'assurance
+      // Appel à l'edge function
       const { data, error } = await supabase.functions.invoke('amg-verify-insurance', {
         body: { insuranceNumber },
       });
@@ -27,14 +27,13 @@ const Login = () => {
         console.error('Edge function error:', error);
         toast({
           title: "Erreur",
-          description: "Impossible de vérifier le numéro d'assurance",
+          description: "Impossible de vérifier le numéro d'assurance. La recherche dans le système AMG prend trop de temps.",
           variant: "destructive",
         });
         setIsLoading(false);
         return;
       }
 
-      // Check if the edge function returned an error in the data
       if (data?.error) {
         console.error('Edge function returned error:', data.error);
         toast({
@@ -56,18 +55,10 @@ const Login = () => {
         return;
       }
 
-      // Si l'assuré existe, on stocke les données et on redirige directement
       console.log('Assuré trouvé:', data.fullName, '- Numéro:', insuranceNumber);
-      console.log('=== DONNÉES REÇUES DE L\'API AMG ===');
-      console.log('Patient:', data.patientData?.id);
-      console.log('Contract:', data.contractData?.entry?.length || 0, 'entrée(s)');
-      console.log('Coverage:', data.coverageData?.entry?.length || 0, 'entrée(s)');
-      console.log('Insurance Plan:', data.insurancePlanData?.entry?.length || 0, 'entrée(s)');
       
-      // IMPORTANT: Vider l'ancien cache avant de stocker les nouvelles données
       localStorage.removeItem('amg_insurance_data');
       
-      // Stocker les NOUVELLES données de l'assuré dans le localStorage
       const insuranceData = {
         insuranceNumber,
         fullName: data.fullName,
@@ -75,25 +66,23 @@ const Login = () => {
         coverageData: data.coverageData,
         contractData: data.contractData,
         insurancePlanData: data.insurancePlanData,
-        coverageStatus: data.coverageStatus, // Status determined by edge function
+        coverageStatus: data.coverageStatus,
         timestamp: Date.now(),
       };
       
       localStorage.setItem('amg_insurance_data', JSON.stringify(insuranceData));
-      console.log('✅ Données AMG stockées pour', data.fullName);
 
       toast({
         title: "Connexion réussie",
         description: `Bienvenue ${data.fullName}`,
       });
 
-      // Redirection immédiate vers le dashboard
       navigate("/dashboard", { replace: true });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
       toast({
         title: "Erreur",
-        description: "Une erreur est survenue lors de la connexion",
+        description: "Une erreur est survenue lors de la connexion. Veuillez réessayer.",
         variant: "destructive",
       });
     } finally {
@@ -118,7 +107,7 @@ const Login = () => {
               <Input
                 id="insurance"
                 type="text"
-                placeholder="Ex: AMG-2025-001245"
+                placeholder="Ex: 000057982984"
                 value={insuranceNumber}
                 onChange={(e) => setInsuranceNumber(e.target.value)}
                 className="h-14"
@@ -131,13 +120,13 @@ const Login = () => {
               className="w-full h-14"
               disabled={isLoading}
             >
-              {isLoading ? "Connexion..." : "Se connecter"}
+              {isLoading ? "Vérification en cours..." : "Se connecter"}
             </Button>
-          </form>
 
-          <p className="text-center text-sm text-muted-foreground mt-6">
-            Utilisez votre numéro d'assurance AMG pour accéder à votre espace
-          </p>
+            <p className="text-sm text-center text-muted-foreground">
+              Utilisez votre numéro d'assurance AMG pour accéder à votre espace
+            </p>
+          </form>
         </div>
       </div>
     </div>
