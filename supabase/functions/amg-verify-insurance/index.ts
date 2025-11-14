@@ -160,14 +160,13 @@ Deno.serve(async (req) => {
     console.log(`Patient belongs to Group: ${groupId}`);
     
     // Query contracts by Group with sorting and increased page size
-    // Sort by _lastUpdated descending to get most recent contracts first
-    // Increase count to 200 to get more contracts
-    const contractQueryParam = groupId 
-      ? `subject=Group/${groupId}&_count=200&_sort=-_lastUpdated` 
-      : `subject=Patient/${patient.id}&_count=200&_sort=-_lastUpdated`;
+    // IMPORTANT: Ne PAS filtrer par subject dans l'API car le filtre ne fonctionne pas
+    // On va récupérer tous les contrats récents et filtrer côté code
+    // Récupérer 1000 contrats les plus récents pour être sûr d'avoir celui de la famille
+    console.log(`🔍 Fetching ALL recent contracts (no subject filter) to find Group ${groupId} contract...`);
     
     const contractResponse = await fetch(
-      `https://dev.amg.km/api/api_fhir_r4/Contract/?${contractQueryParam}`,
+      `https://dev.amg.km/api/api_fhir_r4/Contract/?_count=1000&_sort=-_lastUpdated`,
       {
         method: 'GET',
         headers: {
@@ -182,25 +181,43 @@ Deno.serve(async (req) => {
     
     if (contractResponse.ok) {
       contractData = await contractResponse.json();
-      console.log('Contract data retrieved successfully');
-      console.log(`Total contracts found for ${groupId ? 'Group' : 'Patient'}: ${contractData.total || 0}`);
-      console.log(`Number of contract entries in response: ${contractData.entry?.length || 0}`);
+      console.log('✅ Contract data retrieved successfully');
+      console.log(`📊 Total contracts in AMG system: ${contractData.total || 0}`);
+      console.log(`📦 Number of contracts fetched: ${contractData.entry?.length || 0}`);
+      console.log(`🎯 Looking for contracts belonging to Group: ${groupId}`);
       
       // Analyze contracts to find the active/executed one for this group
       if (contractData.entry && contractData.entry.length > 0) {
-        console.log(`Analyzing ${contractData.entry.length} contracts...`);
+        console.log(`\n🔎 Analyzing ${contractData.entry.length} contracts to find Group ${groupId}...`);
         
-        // Log first 3 contracts to debug subject format
-        console.log('📋 Sample of first 3 contracts received:');
-        contractData.entry.slice(0, 3).forEach((entry: any, idx: number) => {
+        // First, count how many contracts belong to this group
+        let groupContractCount = 0;
+        contractData.entry.forEach((entry: any) => {
           const contract = entry.resource;
-          const contractId = contract.identifier?.[1]?.value || contract.identifier?.[0]?.value || 'unknown';
-          const subject = contract.subject?.[0]?.reference || 'no subject';
-          const status = contract.status || 'no status';
-          const period = contract.term?.[0]?.asset?.[0]?.period?.[0];
-          console.log(`  [${idx + 1}] Contract ${contractId}:`);
-          console.log(`      subject="${subject}", status="${status}"`);
-          console.log(`      period: ${period?.start} to ${period?.end}`);
+          const contractSubject = contract.subject?.[0]?.reference;
+          if (contractSubject?.includes(groupId)) {
+            groupContractCount++;
+          }
+        });
+        
+        console.log(`📊 Found ${groupContractCount} contracts for Group ${groupId} out of ${contractData.entry.length} total`);
+        
+        // Log first 5 contracts that belong to this group (for debugging)
+        console.log('📋 First contracts for this Group:');
+        let debugCount = 0;
+        contractData.entry.forEach((entry: any, idx: number) => {
+          if (debugCount >= 5) return;
+          const contract = entry.resource;
+          const contractSubject = contract.subject?.[0]?.reference;
+          if (contractSubject?.includes(groupId)) {
+            debugCount++;
+            const contractId = contract.identifier?.[1]?.value || contract.identifier?.[0]?.value || 'unknown';
+            const status = contract.status || 'no status';
+            const period = contract.term?.[0]?.asset?.[0]?.period?.[0];
+            console.log(`  [${debugCount}] Contract ${contractId}:`);
+            console.log(`      subject="${contractSubject}", status="${status}"`);
+            console.log(`      period: ${period?.start} to ${period?.end}`);
+          }
         });
         
         // IMPORTANT: In openIMIS, all members of a Group are covered by the Group's contract
@@ -211,16 +228,12 @@ Deno.serve(async (req) => {
           const contract = entry.resource;
           
           // CRITICAL: Verify this contract belongs to THIS group
-          // The API should already have filtered by subject, but we double-check
-          // Accept multiple formats: "Group/123", "123", or any ending with "/123"
-          const contractSubject = contract.subject?.[0]?.reference;
-          const belongsToThisGroup = 
-            contractSubject === `Group/${groupId}` || 
-            contractSubject === groupId ||
-            contractSubject?.endsWith(`/${groupId}`);
+          // Check if the subject contains the groupId in any format
+          const contractSubject = contract.subject?.[0]?.reference || '';
+          const belongsToThisGroup = contractSubject.includes(groupId);
           
           if (!belongsToThisGroup) {
-            // Skip contracts that don't belong to this group (shouldn't happen with API filter)
+            // Skip contracts that don't belong to this group
             return false;
           }
           
@@ -310,8 +323,8 @@ Deno.serve(async (req) => {
             const contract = entry.resource;
             
             // CRITICAL: Only check contracts belonging to THIS group
-            const contractSubject = contract.subject?.[0]?.reference;
-            const belongsToThisGroup = contractSubject === `Group/${groupId}`;
+            const contractSubject = contract.subject?.[0]?.reference || '';
+            const belongsToThisGroup = contractSubject.includes(groupId);
             
             if (!belongsToThisGroup) {
               return false;
