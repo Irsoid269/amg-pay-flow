@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.amg-sync-contracts]
 verify_jwt = false
+
+[functions.amg-get-payments]
+verify_jwt = false
