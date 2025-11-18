@@ -171,7 +171,44 @@ Deno.serve(async (req) => {
       console.log('💡 Tip: Run the sync function to populate the database with AMG contracts');
     }
 
-    // Step 5: Get insurance plan
+    // Step 5: Get unpaid invoices for the patient
+    console.log('\n💰 Fetching invoices for patient...');
+    let totalUnpaidAmount = 0;
+    let invoicesData = null;
+    
+    const invoicesResponse = await fetch(
+      `https://dev.amg.km/api/api_fhir_r4/Invoice/?subject=Patient/${patient.id}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+      }
+    );
+
+    if (invoicesResponse.ok) {
+      invoicesData = await invoicesResponse.json();
+      console.log('Invoices data retrieved successfully');
+      
+      // Calculate total unpaid amount
+      if (invoicesData?.entry && invoicesData.entry.length > 0) {
+        for (const entry of invoicesData.entry) {
+          const invoice = entry.resource;
+          // Consider an invoice unpaid if status is not 'balanced' or 'cancelled'
+          if (invoice.status !== 'balanced' && invoice.status !== 'cancelled') {
+            const amount = invoice.totalNet?.value || invoice.totalGross?.value || 0;
+            totalUnpaidAmount += amount;
+            console.log(`📋 Invoice ${invoice.id}: ${invoice.status} - Amount: ${amount}`);
+          }
+        }
+        console.log(`💵 Total unpaid amount: ${totalUnpaidAmount}`);
+      } else {
+        console.log('ℹ️ No invoices found for patient');
+      }
+    }
+
+    // Step 6: Get insurance plan
     let insurancePlanData = null;
     if (coverageData?.entry?.[0]?.resource?.class?.[0]?.value) {
       const planName = coverageData.entry[0].resource.class[0].value;
@@ -222,6 +259,8 @@ Deno.serve(async (req) => {
         coverageData,
         contractData: contractDataForResponse,
         insurancePlanData,
+        invoicesData,
+        totalUnpaidAmount,
         fullName,
         coverageStatus,
       }),
