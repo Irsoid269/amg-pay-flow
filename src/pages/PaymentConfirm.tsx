@@ -50,7 +50,16 @@ const PaymentConfirm = () => {
       const data = await response.json();
       
       if (data.success) {
-        // Créer et soumettre le formulaire POST vers HOLO
+        // Mode test: Redirection directe
+        if (data.testMode) {
+          console.log('Mode test: Simulation du paiement');
+          setTimeout(() => {
+            window.location.href = data.redirectUrl;
+          }, 2000);
+          return;
+        }
+        
+        // Mode production: Créer et soumettre le formulaire POST vers HOLO
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = data.paymentUrl;
