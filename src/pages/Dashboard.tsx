@@ -1,9 +1,10 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { CreditCard, History, AlertCircle, LogOut } from "lucide-react";
+import { CreditCard, AlertCircle, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
 import logoAmg from "@/assets/logo-amg.png";
+import { supabase } from "@/integrations/supabase/client";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -12,6 +13,9 @@ const Dashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [paymentAmount, setPaymentAmount] = useState("0");
   const [coverageStatus, setCoverageStatus] = useState("inactive");
+  const [coverageReason, setCoverageReason] = useState<string | null>(null);
+  const [policyStatus, setPolicyStatus] = useState<string | null>(null);
+  const [policyExpiry, setPolicyExpiry] = useState<string | null>(null);
   const [paymentType, setPaymentType] = useState("mensuelle");
 
   useEffect(() => {
@@ -47,16 +51,8 @@ const Dashboard = () => {
         setUserName(insuranceData.fullName || 'Utilisateur');
         setInsuranceNumber(insuranceData.insuranceNumber || '');
 
-        // Utiliser le montant total des factures impayées retourné par l'edge function
+        // Info sur factures impayées côté API (pour logs)
         console.log('💵 Total unpaid amount from API:', insuranceData.totalUnpaidAmount);
-        
-        let amount = '0';
-        if (insuranceData.totalUnpaidAmount !== undefined && insuranceData.totalUnpaidAmount > 0) {
-          amount = new Intl.NumberFormat('fr-FR').format(insuranceData.totalUnpaidAmount);
-          console.log('✅ Montant des factures impayées:', amount, 'KMF');
-        } else {
-          console.log('ℹ️  Aucune facture impayée');
-        }
         
         // === USE STATUS DETERMINED BY EDGE FUNCTION ===
         let finalStatus = 'inactive';
@@ -69,24 +65,103 @@ const Dashboard = () => {
           if (finalStatus === 'active') {
             console.log('   Patient has active insurance coverage');
           } else {
-            console.log('   Patient has no active insurance coverage');
+  const msgByStatus = {
+    active: '   Patient has active insurance coverage',
+    pending: '   Couverture en attente (statut brouillon/pending)',
+    inactive: '   Patient has no active insurance coverage',
+    unknown: '   Statut de couverture inconnu',
+  } as const;
+  console.log(msgByStatus[finalStatus as keyof typeof msgByStatus] || msgByStatus.unknown);
           }
         } else {
           console.log('⚠️  Coverage status not provided by edge function, using fallback');
           finalStatus = 'inactive';
         }
         
+        // Déterminer le montant à payer à afficher
+        let amount = '0';
+        const policyValue = insuranceData.policyData?.policyValue;
+        if (finalStatus === 'inactive' && typeof policyValue === 'number' && policyValue > 0) {
+          amount = new Intl.NumberFormat('fr-FR').format(policyValue);
+          console.log('✅ Montant à payer (pour activer la police):', amount, 'KMF');
+        } else if (insuranceData.totalUnpaidAmount !== undefined && insuranceData.totalUnpaidAmount > 0) {
+          amount = new Intl.NumberFormat('fr-FR').format(insuranceData.totalUnpaidAmount);
+          console.log('✅ Montant des factures impayées:', amount, 'KMF');
+        } else {
+          console.log('ℹ️  Aucune facture impayée');
+        }
+
         console.log('=== RÉSUMÉ POUR CET ASSURÉ ===');
         console.log('👤 Assuré:', insuranceData.insuranceNumber, '-', insuranceData.fullName);
         console.log('📊 Statut:', finalStatus);
-        console.log('💰 Montant à payer (factures impayées):', amount, 'KMF');
+        console.log('💰 Montant à payer:', amount, 'KMF');
         console.log('======================================');
         
         setCoverageStatus(finalStatus);
+        setCoverageReason(insuranceData.coverageReason || null);
+        setPolicyStatus(insuranceData.policyStatus || null);
+        setPolicyExpiry(insuranceData.policyDates?.expiryDate || null);
         setPaymentAmount(amount);
         setPaymentType('mensuelle');
         
         setIsLoading(false);
+
+        // Fetch real-time policy status directly from GraphQL via Edge Function
+        (async () => {
+          try {
+            const useLocalFns = (import.meta as any).env?.VITE_USE_LOCAL_FUNCTIONS === 'true';
+            const localFnsUrl = (import.meta as any).env?.VITE_LOCAL_FUNCTIONS_URL || 'http://localhost:54321/functions/v1';
+
+            let gqlData: any = null;
+            let error: any = null;
+
+            if (useLocalFns) {
+              const resp = await fetch(`${localFnsUrl}/amg-get-policy-status`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ insuranceNumber: insuranceData.insuranceNumber }),
+              });
+              if (!resp.ok) {
+                error = await resp.text();
+              } else {
+                gqlData = await resp.json();
+              }
+            } else {
+              const { data: cloudData, error: cloudErr } = await supabase.functions.invoke('amg-get-policy-status', {
+                body: { insuranceNumber: insuranceData.insuranceNumber },
+              });
+              gqlData = cloudData; error = cloudErr;
+            }
+
+            if (error) {
+              console.warn('GraphQL policy status fetch error:', error);
+              return;
+            }
+
+            if (gqlData && gqlData.exists) {
+              const policyStatus = gqlData.policyStatus || null;
+              const expiry = gqlData.policyDates?.expiryDate || null;
+              const coverageStatusFromGraphQL = gqlData.coverageStatusGraphQL || null;
+              const coverageReasonFromGraphQL = gqlData.coverageReasonGraphQL || null;
+
+  console.group('Statut police (live via GraphQL/FHIR)');
+              console.log('policyStatus:', policyStatus);
+              console.log('expiryDate:', expiry);
+              console.log('coverageStatusGraphQL:', coverageStatusFromGraphQL);
+              console.log('coverageReasonGraphQL:', coverageReasonFromGraphQL);
+              console.groupEnd();
+
+              if (coverageStatusFromGraphQL) {
+                setCoverageStatus(coverageStatusFromGraphQL);
+              }
+              setCoverageReason(coverageReasonFromGraphQL);
+              setPolicyStatus(policyStatus);
+              setPolicyExpiry(expiry);
+            }
+          } catch (e) {
+            console.warn('GraphQL status fetch exception:', e);
+          }
+        })();
       } catch (error) {
         console.error('Dashboard - Auth check error:', error);
         localStorage.removeItem('amg_insurance_data');
@@ -165,10 +240,14 @@ const Dashboard = () => {
                 <p className="text-sm text-muted-foreground mb-1">Statut</p>
                 <div className="flex items-center gap-2">
                   <span className={`inline-block w-2 h-2 rounded-full ${
-                    coverageStatus === 'active' ? 'bg-success animate-pulse' : 'bg-destructive'
+                    coverageStatus === 'active'
+                      ? 'bg-success animate-pulse'
+                      : coverageStatus === 'pending'
+                        ? 'bg-yellow-500'
+                        : 'bg-destructive'
                   }`} />
                   <span className="font-medium">
-                    {coverageStatus === 'active' ? 'Actif' : 'Inactif'}
+                    {coverageStatus === 'active' ? 'Actif' : coverageStatus === 'pending' ? 'En attente' : 'Inactif'}
                   </span>
                 </div>
               </div>
@@ -183,6 +262,25 @@ const Dashboard = () => {
               <p className="text-sm text-muted-foreground mb-1">Type de cotisation</p>
               <p className="font-medium capitalize">{paymentType}</p>
             </div>
+
+            <div className="mt-4 space-y-1">
+              {policyExpiry && (
+                <p className="text-sm text-muted-foreground">
+                  Expire le: {new Date(policyExpiry).toLocaleDateString()}
+                </p>
+              )}
+              {(['graphql_active_in_window','graphql_inactive_status','graphql_pending_status','fallback_active_contract','fallback_no_contract'] as const).includes(coverageReason as any) && (
+                <p className="text-sm text-muted-foreground">
+                  Raison: {
+                    coverageReason === 'graphql_active_in_window' ? 'Police ACTIVE et dates valides' :
+                    coverageReason === 'graphql_inactive_status' ? 'Police inactive (EXPIRED/SUSPENDED/CANCELLED)' :
+                    coverageReason === 'graphql_pending_status' ? 'Police en attente de validation' :
+                    coverageReason === 'fallback_active_contract' ? 'Contrat actif en base (fallback)' :
+                    'Aucun contrat actif (fallback)'
+                  }
+                </p>
+              )}
+            </div>
           </div>
         </Card>
 
@@ -195,14 +293,7 @@ const Dashboard = () => {
             Payer ma cotisation
           </Button>
 
-          <Button 
-            variant="outline" 
-            className="w-full py-6 text-lg border-2"
-            onClick={() => navigate("/history")}
-          >
-            <History className="mr-2 h-5 w-5" />
-            Historique des paiements
-          </Button>
+          {/* Bouton Historique des paiements retiré */}
         </div>
 
         <Card className="p-4 bg-turquoise/5 border-turquoise/20">

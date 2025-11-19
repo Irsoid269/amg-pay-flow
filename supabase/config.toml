@@ -9,6 +9,9 @@ verify_jwt = false
 [functions.amg-get-payments]
 verify_jwt = false
 
+[functions.amg-get-policy-status]
+verify_jwt = false
+
 [functions.holo-init-payment]
 verify_jwt = false
 

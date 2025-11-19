@@ -65,10 +65,10 @@ Deno.serve(async (req) => {
 
     console.log('Authentication successful');
 
-    // Step 2: Get PaymentReconciliation/PaymentNotice for the patient
-    console.log('Fetching payment reconciliations...');
-    const paymentReconciliationResponse = await fetch(
-      `https://dev.amg.km/api/api_fhir_r4/PaymentReconciliation/?request=Patient/${insuranceNumber}`,
+    // Step 2: Resolve patient and family group
+    console.log('Fetching patient and family group...');
+    const patientResponse = await fetch(
+      `https://dev.amg.km/api/api_fhir_r4/Patient/${insuranceNumber}`,
       {
         method: 'GET',
         headers: {
@@ -78,71 +78,130 @@ Deno.serve(async (req) => {
       }
     );
 
-    let paymentReconciliations = null;
-    if (paymentReconciliationResponse.ok) {
-      paymentReconciliations = await paymentReconciliationResponse.json();
-      console.log('Payment reconciliations retrieved:', paymentReconciliations?.total || 0);
+    let patientId = insuranceNumber;
+    let groupResourceId: string | undefined = undefined;
+
+    if (patientResponse.ok) {
+      const patientJson = await patientResponse.json();
+      patientId = patientJson?.id || insuranceNumber;
+      const groupExtension = patientJson?.extension?.find(
+        (ext: any) => ext.url === 'https://openimis.github.io/openimis_fhir_r4_ig/StructureDefinition/patient-group-reference'
+      );
+      const groupId = groupExtension?.valueReference?.identifier?.value;
+      const referenceStr: string | undefined = groupExtension?.valueReference?.reference;
+      const extractedUuid = referenceStr ? (referenceStr.includes('/') ? referenceStr.split('/')[1] : referenceStr) : undefined;
+      groupResourceId = extractedUuid || groupId || undefined;
+      console.log('Patient resolved:', patientId, '| Group:', groupResourceId);
     } else {
-      console.log('No payment reconciliations found or error:', paymentReconciliationResponse.status);
+      console.warn('Patient fetch failed; proceeding with direct insuranceNumber as Patient ID');
     }
 
-    // Step 3: Get PaymentNotice for the patient
-    console.log('Fetching payment notices...');
-    const paymentNoticeResponse = await fetch(
-      `https://dev.amg.km/api/api_fhir_r4/PaymentNotice/?request=Patient/${insuranceNumber}`,
-      {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-        },
-      }
-    );
+    // Step 3: Collect patient IDs (insured + family members if group available)
+    const targetPatientIds: string[] = [];
+    const pushUnique = (id?: string) => {
+      if (!id) return;
+      if (!targetPatientIds.includes(id)) targetPatientIds.push(id);
+    };
+    pushUnique(patientId);
 
-    let paymentNotices = null;
-    if (paymentNoticeResponse.ok) {
-      paymentNotices = await paymentNoticeResponse.json();
-      console.log('Payment notices retrieved:', paymentNotices?.total || 0);
-    } else {
-      console.log('No payment notices found or error:', paymentNoticeResponse.status);
-    }
-
-    // Step 4: Format payments for frontend
-    const payments = [];
-
-    // Process PaymentReconciliation entries
-    if (paymentReconciliations?.entry) {
-      for (const entry of paymentReconciliations.entry) {
-        const payment = entry.resource;
-        payments.push({
-          id: payment.id,
-          type: 'reconciliation',
-          status: payment.status || 'unknown',
-          amount: payment.paymentAmount?.value || payment.detail?.[0]?.amount?.value || 0,
-          currency: payment.paymentAmount?.currency || payment.detail?.[0]?.amount?.currency || 'KMF',
-          date: payment.created || payment.period?.start || 'N/A',
-          paymentIdentifier: payment.paymentIdentifier?.value || 'N/A',
-          description: payment.disposition || 'Payment reconciliation',
-          raw: payment
-        });
+    if (groupResourceId) {
+      try {
+        const groupResp = await fetch(
+          `https://dev.amg.km/api/api_fhir_r4/Group/${groupResourceId}`,
+          {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${authToken}`,
+            },
+          }
+        );
+        if (groupResp.ok) {
+          const groupJson = await groupResp.json();
+          const members: any[] = Array.isArray(groupJson.member) ? groupJson.member : [];
+          for (const m of members) {
+            const ref: string | undefined = m?.entity?.reference;
+            const id = ref ? (ref.includes('/') ? ref.split('/')[1] : ref) : undefined;
+            pushUnique(id);
+          }
+          console.log('Family members resolved:', targetPatientIds);
+        } else {
+          console.warn('Group fetch failed:', groupResp.status);
+        }
+      } catch (e) {
+        console.warn('Error fetching group members:', e);
       }
     }
 
-    // Process PaymentNotice entries
-    if (paymentNotices?.entry) {
-      for (const entry of paymentNotices.entry) {
-        const payment = entry.resource;
-        payments.push({
-          id: payment.id,
-          type: 'notice',
-          status: payment.status || 'unknown',
-          amount: payment.amount?.value || 0,
-          currency: payment.amount?.currency || 'KMF',
-          date: payment.created || payment.payment?.date || 'N/A',
-          paymentIdentifier: payment.paymentStatus?.coding?.[0]?.display || 'N/A',
-          description: 'Payment notice',
-          raw: payment
-        });
+    // Step 4: Fetch payments for all target patients
+    const payments: any[] = [];
+    let paymentReconciliationsAgg: any[] = [];
+    let paymentNoticesAgg: any[] = [];
+
+    for (const pid of targetPatientIds) {
+      console.log('Fetching payments for Patient/', pid);
+      // PaymentReconciliation
+      const prResp = await fetch(
+        `https://dev.amg.km/api/api_fhir_r4/PaymentReconciliation/?request=Patient/${pid}`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+          },
+        }
+      );
+      let prJson: any = null;
+      if (prResp.ok) {
+        prJson = await prResp.json();
+        const entries = Array.isArray(prJson.entry) ? prJson.entry : [];
+        paymentReconciliationsAgg.push({ patientId: pid, data: prJson });
+        for (const entry of entries) {
+          const payment = entry.resource;
+          payments.push({
+            id: payment.id,
+            type: 'reconciliation',
+            status: payment.status || 'unknown',
+            amount: payment.paymentAmount?.value || payment.detail?.[0]?.amount?.value || 0,
+            currency: payment.paymentAmount?.currency || payment.detail?.[0]?.amount?.currency || 'KMF',
+            date: payment.created || payment.period?.start || 'N/A',
+            paymentIdentifier: payment.paymentIdentifier?.value || 'N/A',
+            description: pid === patientId ? (payment.disposition || 'Payment reconciliation') : `Famille · ${payment.disposition || 'Payment reconciliation'}`,
+            raw: payment
+          });
+        }
+      }
+
+      // PaymentNotice
+      const pnResp = await fetch(
+        `https://dev.amg.km/api/api_fhir_r4/PaymentNotice/?request=Patient/${pid}`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+          },
+        }
+      );
+      let pnJson: any = null;
+      if (pnResp.ok) {
+        pnJson = await pnResp.json();
+        const entries = Array.isArray(pnJson.entry) ? pnJson.entry : [];
+        paymentNoticesAgg.push({ patientId: pid, data: pnJson });
+        for (const entry of entries) {
+          const payment = entry.resource;
+          payments.push({
+            id: payment.id,
+            type: 'notice',
+            status: payment.status || 'unknown',
+            amount: payment.amount?.value || 0,
+            currency: payment.amount?.currency || 'KMF',
+            date: payment.created || payment.payment?.date || 'N/A',
+            paymentIdentifier: payment.paymentStatus?.coding?.[0]?.display || 'N/A',
+            description: pid === patientId ? 'Payment notice' : 'Famille · Payment notice',
+            raw: payment
+          });
+        }
       }
     }
 
@@ -153,14 +212,14 @@ Deno.serve(async (req) => {
       return dateB.getTime() - dateA.getTime();
     });
 
-    console.log(`Total payments found: ${payments.length}`);
+    console.log(`Total payments found (insured + family): ${payments.length}`);
 
     return new Response(
       JSON.stringify({
         success: true,
         payments,
-        paymentReconciliations,
-        paymentNotices,
+        paymentReconciliations: paymentReconciliationsAgg,
+        paymentNotices: paymentNoticesAgg,
       }),
       {
         status: 200,

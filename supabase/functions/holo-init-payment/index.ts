@@ -5,14 +5,18 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Configuration HOLO - À VÉRIFIER avec votre administrateur HOLO
-// L'URL doit correspondre à votre environnement HOLO (test ou production)
-// Le Merchant ID et l'IP de votre application doivent être configurés dans HOLO
+// Configuration HOLO / Proxy
+// Le Merchant ID et les URLs doivent être configurés dans HOLO
+// Pour éviter le whitelist IP côté Supabase, on passe par un proxy serveur AMG
 const HOLO_API_URL = 'https://26900.tagpay.fr/online/online.php';
-const MERCHANT_ID = '2006214794279291';
+const MERCHANT_ID = '2449462108576891';
+// Endpoint proxy côté AMG qui initialise la session HOLO en appelant HOLO depuis l'IP whitelister (3.6.76.175)
+// Attendu: soit JSON { success: true, sessionid: string } soit texte "OK:<sessionid>"
+const PROXY_INIT_URL = 'https://dev.amg.km/holo/init';
 
 // Mode test pour développement (à désactiver en production)
-const TEST_MODE = true;
+// Basculez à false pour rediriger vers la page HOLO réelle
+const TEST_MODE = false;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -21,6 +25,15 @@ serve(async (req) => {
 
   try {
     const { amount, insuranceNumber } = await req.json();
+    // Obtenir l'adresse IP publique du serveur (utile pour whitelist HOLO)
+    let serverIp = 'unknown';
+    try {
+      const ipRes = await fetch('https://api.ipify.org?format=json');
+      const ipJson = await ipRes.json();
+      serverIp = ipJson?.ip || serverIp;
+    } catch (_) {
+      // ignore
+    }
     
     console.log('Initiating HOLO payment:', { amount, insuranceNumber });
 
@@ -40,6 +53,7 @@ serve(async (req) => {
           success: true,
           testMode: true,
           redirectUrl: testResultUrl,
+          serverIp,
           message: 'Mode test - Paiement simulé'
         }),
         { 
@@ -51,34 +65,54 @@ serve(async (req) => {
       );
     }
 
-    // MODE PRODUCTION: Utiliser l'API HOLO réelle
-    const sessionUrl = `${HOLO_API_URL}?merchantid=${MERCHANT_ID}`;
-    console.log('Requesting session from:', sessionUrl);
-    
-    const sessionResponse = await fetch(sessionUrl);
-    const sessionText = await sessionResponse.text();
-    
-    console.log('Session response:', sessionText);
+    // MODE PRODUCTION via PROXY: demander la session HOLO au serveur AMG (IP whitelister)
+    console.log('Requesting session via proxy:', PROXY_INIT_URL);
+    let sessionId = '';
+    try {
+      const proxyRes = await fetch(PROXY_INIT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ merchantid: MERCHANT_ID })
+      });
 
-    // Vérifier si la session est créée avec succès
-    if (!sessionText.startsWith('OK:')) {
-      console.error('❌ HOLO Configuration Error:', sessionText);
-      console.error('Le Merchant ID ou l\'IP ne sont pas configurés dans HOLO');
-      console.error('Veuillez contacter votre administrateur HOLO pour:');
-      console.error('1. Vérifier que le Merchant ID est correct');
-      console.error('2. Whitelister l\'IP de votre application');
-      console.error('3. Configurer les URLs de redirection');
-      
-      throw new Error(`Configuration HOLO invalide: ${sessionText}. Veuillez vérifier avec votre administrateur HOLO.`);
+      const contentType = proxyRes.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const json = await proxyRes.json();
+        if (json?.success && typeof json?.sessionid === 'string' && json.sessionid.length > 0) {
+          sessionId = json.sessionid;
+        } else {
+          const err = json?.error || 'Réponse JSON proxy invalide';
+          throw new Error(err);
+        }
+      } else {
+        const text = await proxyRes.text();
+        console.log('Proxy response (text):', text);
+        if (text.startsWith('OK:')) {
+          sessionId = text.substring(3).trim();
+        } else {
+          throw new Error(`Réponse proxy non OK: ${text}`);
+        }
+      }
+    } catch (e) {
+      console.error('❌ Proxy HOLO init error:', e);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `Erreur d'initialisation via proxy: ${e instanceof Error ? e.message : 'inconnue'}`,
+          details: 'Vérifiez que l\'endpoint https://dev.amg.km/holo/init existe et appelle HOLO avec merchantid.',
+          serverIp,
+        }),
+        {
+          status: 502,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
-
-    // Extraire le session ID (enlever "OK:")
-    const sessionId = sessionText.substring(3).trim();
     
     // Générer une référence unique pour la transaction
     const purchaseRef = `PAY-${insuranceNumber}-${Date.now()}`;
     
-    // L'URL de base de l'application
+    // L'URL de base de l'application (non utilisé pour les URLs HOLO car elles sont fournies par dev.amg.km)
     const baseUrl = req.headers.get('origin') || 'https://id-preview--a3834d89-e8f2-4331-af08-c6853d1f5422.lovable.app';
     
     // Préparer les paramètres pour le formulaire HOLO
@@ -88,9 +122,12 @@ serve(async (req) => {
       amount: Math.round(amount * 100).toString(), // Montant en centimes
       currency: 'KMF',
       purchaseref: purchaseRef,
-      accepturl: `${baseUrl}/payment-result?status=success&operator=holo&ref=${purchaseRef}`,
-      declineurl: `${baseUrl}/payment-result?status=failed&operator=holo&ref=${purchaseRef}`,
-      cancelurl: `${baseUrl}/payment-result?status=cancelled&operator=holo&ref=${purchaseRef}`,
+      // URLs fournies par votre configuration HOLO (environnement DEV)
+      accepturl: 'https://dev.amg.km/holo/acceptpaiement',
+      declineurl: 'https://dev.amg.km/holo/declinepaiement',
+      cancelurl: 'https://dev.amg.km/holo/cancelpaiement',
+      // URL de notification (serveur à serveur) pour la confirmation du paiement
+      notifyurl: 'https://dev.amg.km/holo/notificationpaiement',
       brand: 'AMG Insurance',
       description: `Paiement AMG - ${insuranceNumber}`,
       lang: 'fr'

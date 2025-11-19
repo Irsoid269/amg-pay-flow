@@ -19,8 +19,23 @@ const PaymentConfirm = () => {
   useEffect(() => {
     // Récupérer les données depuis le localStorage
     const paymentData = JSON.parse(localStorage.getItem('pendingPayment') || '{}');
-    const storedInsuranceNumber = localStorage.getItem('insuranceNumber') || '';
-    
+
+    // Essayer d'obtenir le numéro d'assuré depuis amg_insurance_data puis fallback sur pendingPayment
+    let storedInsuranceNumber = '';
+    const insuranceDataRaw = localStorage.getItem('amg_insurance_data');
+    if (insuranceDataRaw) {
+      try {
+        const insuranceData = JSON.parse(insuranceDataRaw);
+        storedInsuranceNumber = insuranceData?.insuranceNumber || '';
+      } catch (e) {
+        console.warn('Impossible de parser amg_insurance_data:', e);
+      }
+    }
+
+    if (!storedInsuranceNumber && paymentData?.insuranceNumber) {
+      storedInsuranceNumber = paymentData.insuranceNumber;
+    }
+
     setInsuranceNumber(storedInsuranceNumber);
     
     if (paymentData.amount) {
@@ -34,7 +49,8 @@ const PaymentConfirm = () => {
     try {
       // Récupérer les données de paiement depuis le localStorage
       const paymentDetails = JSON.parse(localStorage.getItem('pendingPayment') || '{}');
-      const insuranceNumber = localStorage.getItem('insuranceNumber') || '';
+      // Utiliser le numéro d'assuré déjà déterminé
+      const insuredRef = insuranceNumber || paymentDetails?.insuranceNumber || '';
       
       // Appeler l'edge function pour initialiser le paiement HOLO
       const response = await fetch(
@@ -46,7 +62,7 @@ const PaymentConfirm = () => {
           },
           body: JSON.stringify({
             amount: paymentDetails.amount || 0,
-            insuranceNumber: insuranceNumber
+            insuranceNumber: insuredRef
           })
         }
       );
@@ -169,7 +185,7 @@ const PaymentConfirm = () => {
         </Button>
 
         <p className="text-center text-sm text-muted-foreground font-medium">
-          En confirmant, vous acceptez le prélèvement de 3 000 KMF
+          En confirmant, vous acceptez le prélèvement de {paymentAmount} KMF
         </p>
       </div>
     </div>

@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 export const useAutoSync = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const enableAutoSync = import.meta.env.VITE_ENABLE_AUTO_SYNC === 'true';
 
   useEffect(() => {
     checkAndSync();
@@ -46,7 +47,11 @@ export const useAutoSync = () => {
 
       if (shouldSync) {
         console.log('⚠️ Sync needed - starting automatic synchronization...');
-        
+        if (!enableAutoSync) {
+          console.log('🚫 Auto-sync disabled via VITE_ENABLE_AUTO_SYNC');
+          return;
+        }
+
         if (!lastSync || lastSync.status !== 'in_progress') {
           toast.info('Synchronisation automatique', {
             description: 'Mise à jour des données AMG en cours...',
@@ -74,23 +79,30 @@ export const useAutoSync = () => {
       setIsSyncing(true);
 
       // Call the sync function without waiting for completion
-      supabase.functions.invoke('amg-sync-contracts', {
-        body: {},
-      }).then(({ data, error }) => {
-        if (error) {
-          console.error('Sync error:', error);
-          toast.error('Erreur de synchronisation', {
-            description: 'La synchronisation automatique a échoué.',
+      supabase.functions
+        .invoke('amg-sync-contracts', { body: {} })
+        .then(({ data, error }) => {
+          if (error) {
+            console.error('Sync error:', error);
+            toast.error('Erreur de synchronisation', {
+              description: 'La synchronisation automatique a échoué.',
+            });
+          } else {
+            console.log('✅ Sync completed:', data);
+            toast.success('Synchronisation terminée', {
+              description: `${data.totalContractsProcessed} contrats synchronisés`,
+            });
+            setLastSyncTime(new Date());
+          }
+          setIsSyncing(false);
+        })
+        .catch((err) => {
+          console.error('Functions network error during sync:', err);
+          toast.error('Erreur réseau fonction', {
+            description: 'Impossible de contacter la fonction de synchronisation.',
           });
-        } else {
-          console.log('✅ Sync completed:', data);
-          toast.success('Synchronisation terminée', {
-            description: `${data.totalContractsProcessed} contrats synchronisés`,
-          });
-          setLastSyncTime(new Date());
-        }
-        setIsSyncing(false);
-      });
+          setIsSyncing(false);
+        });
 
     } catch (error) {
       console.error('Error starting sync:', error);
