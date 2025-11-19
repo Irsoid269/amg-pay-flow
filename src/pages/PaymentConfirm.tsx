@@ -2,26 +2,79 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ArrowLeft, CheckCircle2 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const PaymentConfirm = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const operator = searchParams.get("operator") || "holo";
   const [isProcessing, setIsProcessing] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState("0");
   const insuranceNumber = localStorage.getItem("insuranceNumber") || "AMG-2025-001245";
 
   const operatorNames: Record<string, string> = {
     holo: "HOLO",
   };
 
-  const handleConfirm = () => {
+  useEffect(() => {
+    // Récupérer le montant du paiement depuis le localStorage
+    const paymentData = JSON.parse(localStorage.getItem('pendingPayment') || '{}');
+    if (paymentData.amount) {
+      setPaymentAmount(new Intl.NumberFormat('fr-FR').format(paymentData.amount));
+    }
+  }, []);
+
+  const handleConfirm = async () => {
     setIsProcessing(true);
-    setTimeout(() => {
-      // Simulate 80% success rate
-      const isSuccess = Math.random() > 0.2;
-      navigate(`/payment-result?status=${isSuccess ? "success" : "failed"}&operator=${operator}`);
-    }, 2000);
+    
+    try {
+      // Récupérer les données de paiement depuis le localStorage
+      const paymentDetails = JSON.parse(localStorage.getItem('pendingPayment') || '{}');
+      const insuranceNumber = localStorage.getItem('insuranceNumber') || '';
+      
+      // Appeler l'edge function pour initialiser le paiement HOLO
+      const response = await fetch(
+        'https://gmlvosodlnhllqbxtoum.supabase.co/functions/v1/holo-init-payment',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            amount: paymentDetails.amount || 0,
+            insuranceNumber: insuranceNumber
+          })
+        }
+      );
+
+      const data = await response.json();
+      
+      if (data.success) {
+        // Créer et soumettre le formulaire POST vers HOLO
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = data.paymentUrl;
+        
+        // Ajouter tous les champs cachés
+        Object.entries(data.paymentData).forEach(([key, value]) => {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = key;
+          input.value = value as string;
+          form.appendChild(input);
+        });
+        
+        document.body.appendChild(form);
+        form.submit();
+      } else {
+        throw new Error(data.error || 'Failed to initialize payment');
+      }
+      
+    } catch (error) {
+      console.error('Payment error:', error);
+      setIsProcessing(false);
+      navigate(`/payment-result?status=failed&operator=${operator}`);
+    }
   };
 
   return (
@@ -51,7 +104,9 @@ const PaymentConfirm = () => {
         <Card className="p-6 space-y-4 animate-scale-in border-2 border-turquoise/20 rounded-2xl shadow-turquoise">
           <div className="flex items-center justify-between py-4 border-b-2 border-turquoise/20">
             <span className="text-muted-foreground font-medium">Montant</span>
-            <span className="text-3xl font-bold bg-gradient-to-r from-primary to-turquoise bg-clip-text text-transparent">3 000 KMF</span>
+            <span className="text-3xl font-bold bg-gradient-to-r from-primary to-turquoise bg-clip-text text-transparent">
+              {paymentAmount} KMF
+            </span>
           </div>
 
           <div className="flex items-center justify-between py-4 border-b border-border">

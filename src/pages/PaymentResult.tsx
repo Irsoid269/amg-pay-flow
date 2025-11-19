@@ -9,7 +9,9 @@ const PaymentResult = () => {
   const [searchParams] = useSearchParams();
   const status = searchParams.get("status") || "success";
   const operator = searchParams.get("operator") || "holo";
+  const ref = searchParams.get("ref") || "";
   const isSuccess = status === "success";
+  const isCancelled = status === "cancelled";
 
   const operatorNames: Record<string, string> = {
     holo: "HOLO",
@@ -54,12 +56,14 @@ const PaymentResult = () => {
           </div>
 
           <div className="space-y-3">
-            <h1 className={`text-3xl font-bold ${isSuccess ? "text-turquoise" : "text-destructive"}`}>
-              {isSuccess ? "Paiement réussi !" : "Paiement échoué"}
+            <h1 className={`text-3xl font-bold ${isSuccess ? "text-turquoise" : isCancelled ? "text-muted-foreground" : "text-destructive"}`}>
+              {isSuccess ? "Paiement réussi !" : isCancelled ? "Paiement annulé" : "Paiement échoué"}
             </h1>
             <p className="text-lg text-muted-foreground font-medium">
               {isSuccess
                 ? "Vos droits AMG sont activés"
+                : isCancelled
+                ? "Vous avez annulé le paiement"
                 : "Solde insuffisant ou erreur réseau"}
             </p>
           </div>

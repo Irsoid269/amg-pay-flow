@@ -97,6 +97,18 @@ const Dashboard = () => {
     checkAuth();
   }, [navigate]);
 
+  const handlePayment = () => {
+    // Stocker les informations de paiement dans le localStorage
+    const paymentData = {
+      amount: parseFloat(paymentAmount.replace(/\s/g, '')) || 0,
+      currency: 'KMF',
+      insuranceNumber: insuranceNumber,
+      timestamp: Date.now()
+    };
+    localStorage.setItem('pendingPayment', JSON.stringify(paymentData));
+    navigate("/payment-method");
+  };
+
   const handleLogout = () => {
     console.log('Logging out...');
     localStorage.removeItem('amg_insurance_data');
@@ -177,7 +189,7 @@ const Dashboard = () => {
         <div className="space-y-4 mb-6">
           <Button 
             className="w-full py-6 text-lg font-semibold gradient-primary shadow-lg hover:shadow-xl transition-all"
-            onClick={() => navigate("/payment-method")}
+            onClick={handlePayment}
           >
             <CreditCard className="mr-2 h-5 w-5" />
             Payer ma cotisation
