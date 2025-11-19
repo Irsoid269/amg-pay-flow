@@ -10,15 +10,19 @@ const PaymentConfirm = () => {
   const operator = searchParams.get("operator") || "holo";
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("0");
-  const insuranceNumber = localStorage.getItem("insuranceNumber") || "AMG-2025-001245";
+  const [insuranceNumber, setInsuranceNumber] = useState("");
 
   const operatorNames: Record<string, string> = {
     holo: "HOLO",
   };
 
   useEffect(() => {
-    // Récupérer le montant du paiement depuis le localStorage
+    // Récupérer les données depuis le localStorage
     const paymentData = JSON.parse(localStorage.getItem('pendingPayment') || '{}');
+    const storedInsuranceNumber = localStorage.getItem('insuranceNumber') || '';
+    
+    setInsuranceNumber(storedInsuranceNumber);
+    
     if (paymentData.amount) {
       setPaymentAmount(new Intl.NumberFormat('fr-FR').format(paymentData.amount));
     }
