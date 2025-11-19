@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
 
     // Step 1: Login to AMG API
     console.log('🔐 Authenticating with AMG API...');
-    const loginResponse = await fetch('https://dev.amg.km/api/api_fhir_r4/login/', {
+    const loginResponse = await fetch('https://test.amg.km/api/api_fhir_r4/login/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -67,7 +67,7 @@ Deno.serve(async (req) => {
     console.log('✅ Authentication successful');
 
     // Step 2: Paginate through ALL contracts
-    let currentUrl: string | null = 'https://dev.amg.km/api/api_fhir_r4/Contract/?_count=1000&_sort=-_lastUpdated';
+    let currentUrl: string | null = 'https://test.amg.km/api/api_fhir_r4/Contract/?_count=1000&_sort=-_lastUpdated';
     let pageNumber = 1;
     let totalContractsProcessed = 0;
     let totalContracts = 0;

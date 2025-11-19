@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
 
     // Step 1: Login to get auth token
     console.log('Authenticating with AMG API...');
-    const loginResponse = await fetch('https://dev.amg.km/api/api_fhir_r4/login/', {
+    const loginResponse = await fetch('https://test.amg.km/api/api_fhir_r4/login/', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
 
     // Step 2: Get patient directly by ID
     const patientResponse = await fetch(
-      `https://dev.amg.km/api/api_fhir_r4/Patient/${insuranceNumber}`,
+      `https://test.amg.km/api/api_fhir_r4/Patient/${insuranceNumber}`,
       {
         method: 'GET',
         headers: {
@@ -138,7 +138,7 @@ Deno.serve(async (req) => {
 
     // Step 3: Get coverage information
     const coverageResponse = await fetch(
-      `https://dev.amg.km/api/api_fhir_r4/Coverage/?beneficiary=Patient/${patient.id}`,
+      `https://test.amg.km/api/api_fhir_r4/Coverage/?beneficiary=Patient/${patient.id}`,
       {
         method: 'GET',
         headers: {
@@ -166,7 +166,7 @@ Deno.serve(async (req) => {
     try {
       const groupResourceId = extractedUuid || groupId;
       if (groupResourceId) {
-        const groupResp = await fetch(`https://dev.amg.km/api/api_fhir_r4/Group/${groupResourceId}`, {
+        const groupResp = await fetch(`https://test.amg.km/api/api_fhir_r4/Group/${groupResourceId}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -205,7 +205,7 @@ Deno.serve(async (req) => {
     if (familyUuidForGraphQL) {
       try {
         console.log('\n📡 Fetching policies from GraphQL for family:', groupId);
-        const graphQLResponse = await fetch('https://dev.amg.km/api/graphql', {
+        const graphQLResponse = await fetch('https://test.amg.km/api/graphql', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -267,7 +267,7 @@ Deno.serve(async (req) => {
     if (!policyStatus && (!policyDates.startDate && !policyDates.effectiveDate && !policyDates.expiryDate)) {
       try {
         const coverageResp = await fetch(
-          `https://dev.amg.km/api/api_fhir_r4/Coverage?beneficiary=Patient/${patient.id}`,
+      `https://test.amg.km/api/api_fhir_r4/Coverage?beneficiary=Patient/${patient.id}`,
           {
             method: 'GET',
             headers: {
@@ -334,7 +334,7 @@ Deno.serve(async (req) => {
     let invoicesData = null;
     
     const invoicesResponse = await fetch(
-      `https://dev.amg.km/api/api_fhir_r4/Invoice/?subject=Patient/${patient.id}`,
+      `https://test.amg.km/api/api_fhir_r4/Invoice/?subject=Patient/${patient.id}`,
       {
         method: 'GET',
         headers: {
@@ -370,7 +370,7 @@ Deno.serve(async (req) => {
     if (coverageData?.entry?.[0]?.resource?.class?.[0]?.value) {
       const planName = coverageData.entry[0].resource.class[0].value;
       const insurancePlanResponse = await fetch(
-        `https://dev.amg.km/api/api_fhir_r4/InsurancePlan/?name=${planName}`,
+      `https://test.amg.km/api/api_fhir_r4/InsurancePlan/?name=${planName}`,
         {
           method: 'GET',
           headers: {

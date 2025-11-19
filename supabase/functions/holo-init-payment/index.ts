@@ -12,7 +12,7 @@ const HOLO_API_URL = 'https://26900.tagpay.fr/online/online.php';
 const MERCHANT_ID = '2449462108576891';
 // Endpoint proxy côté AMG qui initialise la session HOLO en appelant HOLO depuis l'IP whitelister (3.6.76.175)
 // Attendu: soit JSON { success: true, sessionid: string } soit texte "OK:<sessionid>"
-const PROXY_INIT_URL = 'https://dev.amg.km/holo/init';
+const PROXY_INIT_URL = 'https://test.amg.km/holo/init';
 
 // Mode test pour développement (à désactiver en production)
 // Basculez à false pour rediriger vers la page HOLO réelle
@@ -99,7 +99,7 @@ serve(async (req) => {
         JSON.stringify({
           success: false,
           error: `Erreur d'initialisation via proxy: ${e instanceof Error ? e.message : 'inconnue'}`,
-          details: 'Vérifiez que l\'endpoint https://dev.amg.km/holo/init existe et appelle HOLO avec merchantid.',
+          details: 'Vérifiez que l\'endpoint https://test.amg.km/holo/init existe et appelle HOLO avec merchantid.',
           serverIp,
         }),
         {
@@ -122,12 +122,12 @@ serve(async (req) => {
       amount: Math.round(amount * 100).toString(), // Montant en centimes
       currency: 'KMF',
       purchaseref: purchaseRef,
-      // URLs fournies par votre configuration HOLO (environnement DEV)
-      accepturl: 'https://dev.amg.km/holo/acceptpaiement',
-      declineurl: 'https://dev.amg.km/holo/declinepaiement',
-      cancelurl: 'https://dev.amg.km/holo/cancelpaiement',
+      // URLs fournies par votre configuration HOLO (environnement TEST)
+      accepturl: 'https://test.amg.km/holo/acceptpaiement',
+      declineurl: 'https://test.amg.km/holo/declinepaiement',
+      cancelurl: 'https://test.amg.km/holo/cancelpaiement',
       // URL de notification (serveur à serveur) pour la confirmation du paiement
-      notifyurl: 'https://dev.amg.km/holo/notificationpaiement',
+      notifyurl: 'https://test.amg.km/holo/notificationpaiement',
       brand: 'AMG Insurance',
       description: `Paiement AMG - ${insuranceNumber}`,
       lang: 'fr'

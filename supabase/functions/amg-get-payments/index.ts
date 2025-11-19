@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
 
     // Step 1: Login to get auth token
     console.log('Authenticating with AMG API...');
-    const loginResponse = await fetch('https://dev.amg.km/api/api_fhir_r4/login/', {
+    const loginResponse = await fetch('https://test.amg.km/api/api_fhir_r4/login/', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
     // Step 2: Resolve patient and family group
     console.log('Fetching patient and family group...');
     const patientResponse = await fetch(
-      `https://dev.amg.km/api/api_fhir_r4/Patient/${insuranceNumber}`,
+      `https://test.amg.km/api/api_fhir_r4/Patient/${insuranceNumber}`,
       {
         method: 'GET',
         headers: {
@@ -107,7 +107,7 @@ Deno.serve(async (req) => {
     if (groupResourceId) {
       try {
         const groupResp = await fetch(
-          `https://dev.amg.km/api/api_fhir_r4/Group/${groupResourceId}`,
+          `https://test.amg.km/api/api_fhir_r4/Group/${groupResourceId}`,
           {
             method: 'GET',
             headers: {
@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
       console.log('Fetching payments for Patient/', pid);
       // PaymentReconciliation
       const prResp = await fetch(
-        `https://dev.amg.km/api/api_fhir_r4/PaymentReconciliation/?request=Patient/${pid}`,
+        `https://test.amg.km/api/api_fhir_r4/PaymentReconciliation/?request=Patient/${pid}`,
         {
           method: 'GET',
           headers: {
@@ -174,7 +174,7 @@ Deno.serve(async (req) => {
 
       // PaymentNotice
       const pnResp = await fetch(
-        `https://dev.amg.km/api/api_fhir_r4/PaymentNotice/?request=Patient/${pid}`,
+        `https://test.amg.km/api/api_fhir_r4/PaymentNotice/?request=Patient/${pid}`,
         {
           method: 'GET',
           headers: {
