@@ -2,7 +2,6 @@
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { useAutoSync } from "./hooks/useAutoSync";
 import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
 import PaymentMethod from "./pages/PaymentMethod";
@@ -11,13 +10,12 @@ import PaymentResult from "./pages/PaymentResult";
 // Page Historique et Notifications retirées
 // import History from "./pages/History";
 // import Notifications from "./pages/Notifications";
-import AdminSync from "./pages/AdminSync";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
 const AppContent = () => {
-  useAutoSync();
+  // Supabase auto-sync removed
   
   return (
     <BrowserRouter>
@@ -31,7 +29,7 @@ const AppContent = () => {
         {/* <Route path="/history" element={<History />} /> */}
         {/* Route /notifications retirée */}
         {/* <Route path="/notifications" element={<Notifications />} /> */}
-        <Route path="/admin/sync" element={<AdminSync />} />
+        {/* Admin sync removed with Supabase */}
         {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
         <Route path="*" element={<NotFound />} />
       </Routes>

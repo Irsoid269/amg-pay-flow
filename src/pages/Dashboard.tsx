@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { CreditCard, AlertCircle, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
 import logoAmg from "@/assets/logo-amg.png";
-import { supabase } from "@/integrations/supabase/client";
+// Supabase removed: all status/data now come from internal API
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -14,6 +14,8 @@ const Dashboard = () => {
   const [paymentAmount, setPaymentAmount] = useState("0");
   const [coverageStatus, setCoverageStatus] = useState("inactive");
   const [coverageReason, setCoverageReason] = useState<string | null>(null);
+  const [groupStatus, setGroupStatus] = useState("unknown");
+  const [groupReason, setGroupReason] = useState<string | null>(null);
   const [policyStatus, setPolicyStatus] = useState<string | null>(null);
   const [policyExpiry, setPolicyExpiry] = useState<string | null>(null);
   const [paymentType, setPaymentType] = useState("mensuelle");
@@ -33,15 +35,6 @@ const Dashboard = () => {
         }
 
         const insuranceData = JSON.parse(storedData);
-        
-        // Vérifier que les données ne sont pas trop anciennes (24h)
-        const maxAge = 24 * 60 * 60 * 1000; // 24 heures
-        if (Date.now() - insuranceData.timestamp > maxAge) {
-          console.log('Dashboard - Data expired, redirecting to login');
-          localStorage.removeItem('amg_insurance_data');
-          navigate("/", { replace: true });
-          return;
-        }
 
         console.log('Dashboard - Data loaded:', insuranceData);
         console.log('=== DONNÉES ASSURÉ ===');
@@ -78,12 +71,12 @@ const Dashboard = () => {
           finalStatus = 'inactive';
         }
         
-        // Déterminer le montant à payer à afficher
+        // Déterminer le montant à payer à afficher (toujours depuis policyValue si disponible)
         let amount = '0';
         const policyValue = insuranceData.policyData?.policyValue;
-        if (finalStatus === 'inactive' && typeof policyValue === 'number' && policyValue > 0) {
+        if (typeof policyValue === 'number' && policyValue > 0) {
           amount = new Intl.NumberFormat('fr-FR').format(policyValue);
-          console.log('✅ Montant à payer (pour activer la police):', amount, 'KMF');
+          console.log('✅ Montant à payer (cotisation policyValue):', amount, 'KMF');
         } else if (insuranceData.totalUnpaidAmount !== undefined && insuranceData.totalUnpaidAmount > 0) {
           amount = new Intl.NumberFormat('fr-FR').format(insuranceData.totalUnpaidAmount);
           console.log('✅ Montant des factures impayées:', amount, 'KMF');
@@ -99,69 +92,72 @@ const Dashboard = () => {
         
         setCoverageStatus(finalStatus);
         setCoverageReason(insuranceData.coverageReason || null);
+        setGroupStatus(insuranceData.groupStatus || 'unknown');
+        setGroupReason(insuranceData.groupReason || null);
         setPolicyStatus(insuranceData.policyStatus || null);
         setPolicyExpiry(insuranceData.policyDates?.expiryDate || null);
+        // Deriver le plan depuis les données serveur (FHIR Coverage.class[0].value)
+        const planFromServer = insuranceData?.coverageData?.entry?.[0]?.resource?.class?.[0]?.value || null;
         setPaymentAmount(amount);
-        setPaymentType('mensuelle');
+        setPaymentType(planFromServer ? String(planFromServer).toLowerCase() : '');
         
         setIsLoading(false);
 
-        // Fetch real-time policy status directly from GraphQL via Edge Function
+        // Rafraîchir systématiquement depuis le backend (connecté à test.amg.km)
         (async () => {
           try {
-            const useLocalFns = (import.meta as any).env?.VITE_USE_LOCAL_FUNCTIONS === 'true';
-            const localFnsUrl = (import.meta as any).env?.VITE_LOCAL_FUNCTIONS_URL || 'http://localhost:54321/functions/v1';
-
-            let gqlData: any = null;
-            let error: any = null;
-
-            if (useLocalFns) {
-              const resp = await fetch(`${localFnsUrl}/amg-get-policy-status`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ insuranceNumber: insuranceData.insuranceNumber }),
-              });
-              if (!resp.ok) {
-                error = await resp.text();
-              } else {
-                gqlData = await resp.json();
-              }
+            const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
+            const url = apiBase ? `${apiBase}/api/auth/verify-insurance` : '/api/auth/verify-insurance';
+            const resp = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ insuranceNumber: insuranceData.insuranceNumber }),
+            });
+            if (!resp.ok) {
+              console.warn('Refresh verify-insurance failed:', await resp.text());
             } else {
-              const { data: cloudData, error: cloudErr } = await supabase.functions.invoke('amg-get-policy-status', {
-                body: { insuranceNumber: insuranceData.insuranceNumber },
-              });
-              gqlData = cloudData; error = cloudErr;
-            }
-
-            if (error) {
-              console.warn('GraphQL policy status fetch error:', error);
-              return;
-            }
-
-            if (gqlData && gqlData.exists) {
-              const policyStatus = gqlData.policyStatus || null;
-              const expiry = gqlData.policyDates?.expiryDate || null;
-              const coverageStatusFromGraphQL = gqlData.coverageStatusGraphQL || null;
-              const coverageReasonFromGraphQL = gqlData.coverageReasonGraphQL || null;
-
-  console.group('Statut police (live via GraphQL/FHIR)');
-              console.log('policyStatus:', policyStatus);
-              console.log('expiryDate:', expiry);
-              console.log('coverageStatusGraphQL:', coverageStatusFromGraphQL);
-              console.log('coverageReasonGraphQL:', coverageReasonFromGraphQL);
-              console.groupEnd();
-
-              if (coverageStatusFromGraphQL) {
-                setCoverageStatus(coverageStatusFromGraphQL);
+              const fresh = await resp.json();
+              if (fresh && fresh.exists) {
+                setCoverageStatus(fresh.coverageStatus || 'inactive');
+                setCoverageReason(fresh.coverageReason || null);
+                setGroupStatus(fresh.groupStatus || 'unknown');
+                setGroupReason(fresh.groupReason || null);
+                setPolicyStatus(fresh.policyStatus || null);
+                setPolicyExpiry(fresh.policyDates?.expiryDate || null);
+                const planFresh = fresh?.coverageData?.entry?.[0]?.resource?.class?.[0]?.value || null;
+                setPaymentType(planFresh ? String(planFresh).toLowerCase() : '');
+                // Mettre à jour le montant à payer depuis policyValue du serveur
+                const policyValueFresh = fresh?.policyData?.policyValue;
+                let amountFresh = '0';
+                if (typeof policyValueFresh === 'number' && policyValueFresh > 0) {
+                  amountFresh = new Intl.NumberFormat('fr-FR').format(policyValueFresh);
+                } else if (fresh?.totalUnpaidAmount && fresh.totalUnpaidAmount > 0) {
+                  amountFresh = new Intl.NumberFormat('fr-FR').format(fresh.totalUnpaidAmount);
+                }
+                setPaymentAmount(amountFresh);
+                const updatedData = {
+                  ...insuranceData,
+                  coverageStatus: fresh.coverageStatus,
+                  coverageReason: fresh.coverageReason,
+                  groupStatus: fresh.groupStatus,
+                  groupReason: fresh.groupReason,
+                  policyStatus: fresh.policyStatus,
+                  policyDates: fresh.policyDates,
+                  policyData: fresh.policyData,
+                  coverageData: fresh.coverageData,
+                  totalUnpaidAmount: fresh.totalUnpaidAmount,
+                  timestamp: Date.now(),
+                };
+                localStorage.setItem('amg_insurance_data', JSON.stringify(updatedData));
+                console.log('Dashboard - Data refreshed from server');
               }
-              setCoverageReason(coverageReasonFromGraphQL);
-              setPolicyStatus(policyStatus);
-              setPolicyExpiry(expiry);
             }
           } catch (e) {
-            console.warn('GraphQL status fetch exception:', e);
+            console.warn('Refresh verify-insurance exception:', e);
           }
         })();
+
+        // Supabase/GraphQL live policy status removed; rely solely on internal API.
       } catch (error) {
         console.error('Dashboard - Auth check error:', error);
         localStorage.removeItem('amg_insurance_data');
@@ -172,10 +168,24 @@ const Dashboard = () => {
     checkAuth();
   }, [navigate]);
 
+  const getNumericAmount = () => {
+    const numeric = String(paymentAmount)
+      .replace(/[^0-9.,]/g, '')
+      .replace(/\./g, '')
+      .replace(',', '.');
+    const val = parseFloat(numeric);
+    return isNaN(val) ? 0 : val;
+  };
+
   const handlePayment = () => {
     // Stocker les informations de paiement dans le localStorage
+    const cleanedAmount = getNumericAmount();
+    if (!cleanedAmount || cleanedAmount <= 0) {
+      alert("Aucune cotisation due pour cet assuré.");
+      return;
+    }
     const paymentData = {
-      amount: parseFloat(paymentAmount.replace(/\s/g, '')) || 0,
+      amount: cleanedAmount || 0,
       currency: 'KMF',
       insuranceNumber: insuranceNumber,
       timestamp: Date.now()
@@ -258,6 +268,8 @@ const Dashboard = () => {
               </div>
             </div>
 
+            {/* Section Statut du groupe retirée selon la demande */}
+
             <div>
               <p className="text-sm text-muted-foreground mb-1">Type de cotisation</p>
               <p className="font-medium capitalize">{paymentType}</p>
@@ -266,18 +278,7 @@ const Dashboard = () => {
             <div className="mt-4 space-y-1">
               {policyExpiry && (
                 <p className="text-sm text-muted-foreground">
-                  Expire le: {new Date(policyExpiry).toLocaleDateString()}
-                </p>
-              )}
-              {(['graphql_active_in_window','graphql_inactive_status','graphql_pending_status','fallback_active_contract','fallback_no_contract'] as const).includes(coverageReason as any) && (
-                <p className="text-sm text-muted-foreground">
-                  Raison: {
-                    coverageReason === 'graphql_active_in_window' ? 'Police ACTIVE et dates valides' :
-                    coverageReason === 'graphql_inactive_status' ? 'Police inactive (EXPIRED/SUSPENDED/CANCELLED)' :
-                    coverageReason === 'graphql_pending_status' ? 'Police en attente de validation' :
-                    coverageReason === 'fallback_active_contract' ? 'Contrat actif en base (fallback)' :
-                    'Aucun contrat actif (fallback)'
-                  }
+                  Expire le: {new Date(policyExpiry).toLocaleDateString('fr-FR')}
                 </p>
               )}
             </div>
@@ -288,9 +289,10 @@ const Dashboard = () => {
           <Button 
             className="w-full py-6 text-lg font-semibold gradient-primary shadow-lg hover:shadow-xl transition-all"
             onClick={handlePayment}
+            disabled={(() => { const n = String(paymentAmount).replace(/[^0-9.,]/g, '').replace(/\./g, '').replace(',', '.'); const v = parseFloat(n); return isNaN(v) || v <= 0; })()}
           >
             <CreditCard className="mr-2 h-5 w-5" />
-            Payer ma cotisation
+            {(() => { const n = String(paymentAmount).replace(/[^0-9.,]/g, '').replace(/\./g, '').replace(',', '.'); const v = parseFloat(n); return (isNaN(v) || v <= 0) ? 'Aucune cotisation due' : 'Payer ma cotisation'; })()}
           </Button>
 
           {/* Bouton Historique des paiements retiré */}
