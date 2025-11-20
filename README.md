@@ -71,3 +71,23 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+
+## Local configuration
+
+The app now relies on the internal Node API (no Supabase).
+
+Environment (frontend):
+
+```
+VITE_API_BASE_URL=http://localhost:3010
+```
+
+Start servers:
+
+```
+# Frontend (Vite)
+npm run dev
+
+# Backend API
+cd api && npm run dev
+```

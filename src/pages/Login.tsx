@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { supabase } from "@/integrations/supabase/client";
 import logoAmg from "@/assets/logo-amg.png";
 
 const Login = () => {
@@ -17,37 +16,29 @@ const Login = () => {
     try {
       console.log('Verifying insurance number with AMG API...');
       
-      // Commutateur pour fonctions locales (sans modifier le client Supabase auto-généré)
-      const useLocalFns = import.meta.env.VITE_USE_LOCAL_FUNCTIONS === 'true';
-      const localFnsUrl = import.meta.env.VITE_LOCAL_FUNCTIONS_URL || 'http://localhost:54321/functions/v1';
+      // Appeler l'API interne (préférence via VITE_API_BASE_URL)
+      const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+      const url = apiBase ? `${apiBase}/api/auth/verify-insurance` : '/api/auth/verify-insurance';
 
       let data: any = null;
       let invocationError: any = null;
 
-      if (useLocalFns) {
-        try {
-          const resp = await fetch(`${localFnsUrl}/amg-verify-insurance`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ insuranceNumber }),
-          });
-          if (!resp.ok) {
-            const errText = await resp.text();
-            console.error('Local function call failed:', resp.status, errText);
-            invocationError = { message: errText, status: resp.status };
-          } else {
-            data = await resp.json();
-          }
-        } catch (err: any) {
-          console.error('Local function network error:', err);
-          invocationError = err;
-        }
-      } else {
-        const { data: cloudData, error } = await supabase.functions.invoke('amg-verify-insurance', {
-          body: { insuranceNumber },
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ insuranceNumber }),
         });
-        data = cloudData;
-        invocationError = error;
+        if (!resp.ok) {
+          const errText = await resp.text();
+          console.error('Backend call failed:', resp.status, errText);
+          invocationError = { message: errText, status: resp.status };
+        } else {
+          data = await resp.json();
+        }
+      } catch (err: any) {
+        console.error('Backend network error:', err);
+        invocationError = err;
       }
 
       if (invocationError) {
@@ -63,7 +54,11 @@ const Login = () => {
       }
 
       if (!data || !data.exists) {
-        console.warn('Insurance number not found in AMG system');
+        if (data?.reason === 'env_not_allowed') {
+          alert("Accès refusé: l'assuré n'est pas autorisé sur l'environnement de test.");
+        } else {
+          console.warn('Insurance number not found in AMG system');
+        }
         setIsLoading(false);
         return;
       }
@@ -75,6 +70,8 @@ const Login = () => {
       console.log('policyStatus:', data.policyStatus);
       console.log('policyDates:', data.policyDates);
       console.log('policyData:', data.policyData);
+      console.log('groupStatus:', data.groupStatus);
+      console.log('groupReason:', data.groupReason);
       console.groupEnd();
       
       localStorage.removeItem('amg_insurance_data');
@@ -91,6 +88,8 @@ const Login = () => {
         coverageReason: data.coverageReason,
         policyDates: data.policyDates,
         policyData: data.policyData,
+        groupStatus: data.groupStatus,
+        groupReason: data.groupReason,
         timestamp: Date.now(),
       };
       
