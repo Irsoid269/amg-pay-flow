@@ -51,23 +51,23 @@ const PaymentConfirm = () => {
       const paymentDetails = JSON.parse(localStorage.getItem('pendingPayment') || '{}');
       // Utiliser le numéro d'assuré déjà déterminé
       const insuredRef = insuranceNumber || paymentDetails?.insuranceNumber || '';
+      // Assainir le montant: utiliser la valeur numérique ou parser l'affichage
+      const parsedDisplayAmount = parseFloat(String(paymentAmount).replace(/[^0-9.,]/g, '').replace(/\./g, '').replace(',', '.'));
+      const amountNum = Number(paymentDetails.amount) || (isNaN(parsedDisplayAmount) ? 0 : parsedDisplayAmount);
+      if (!amountNum || amountNum <= 0) {
+        throw new Error('amount must be > 0');
+      }
       
-      // Appeler l'edge function pour initialiser le paiement HOLO
-      const response = await fetch(
-        'https://gmlvosodlnhllqbxtoum.supabase.co/functions/v1/holo-init-payment',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            amount: paymentDetails.amount || 0,
-            insuranceNumber: insuredRef
-          })
-        }
-      );
-
-      const data = await response.json();
+      // Appeler l'endpoint serveur (préférence via VITE_API_BASE_URL)
+      const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+      const url = apiBase ? `${apiBase}/holo/init` : '/holo/init';
+      let data: any = null;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: amountNum, purchaseref: insuredRef, description: 'Cotisation AMG' })
+      });
+      data = await resp.json();
       
       if (data.success) {
         // Mode test: Redirection directe
@@ -84,19 +84,24 @@ const PaymentConfirm = () => {
         form.method = 'POST';
         form.action = data.paymentUrl;
         
-        // Ajouter tous les champs cachés
-        Object.entries(data.paymentData).forEach(([key, value]) => {
+        // Ajouter tous les champs cachés selon HOLO (formFields)
+        const params = data.formFields || data.paymentData || data.paymentParams || {};
+        Object.entries(params).forEach(([key, value]) => {
           const input = document.createElement('input');
           input.type = 'hidden';
           input.name = key;
-          input.value = value as string;
+          input.value = String(value);
           form.appendChild(input);
         });
         
         document.body.appendChild(form);
         form.submit();
       } else {
-        throw new Error(data.error || 'Failed to initialize payment');
+        console.error('Payment init failed:', data.error);
+        setIsProcessing(false);
+        alert(data.error || 'Échec de l\'initialisation du paiement.');
+        navigate(`/payment-result?status=failed&operator=${operator}`);
+        return;
       }
       
     } catch (error) {
