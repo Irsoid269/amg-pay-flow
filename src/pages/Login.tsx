@@ -23,26 +23,43 @@ const Login = () => {
       let data: any = null;
       let invocationError: any = null;
 
-      try {
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ insuranceNumber }),
-        });
-        if (!resp.ok) {
-          const errText = await resp.text();
-          console.error('Backend call failed:', resp.status, errText);
-          invocationError = { message: errText, status: resp.status };
-        } else {
-          data = await resp.json();
+      // Retry en cas de redémarrage momentané de l'API (connection refused)
+      const maxAttempts = 6;
+      const baseDelayMs = 300;
+      for (let attempt = 1; attempt <= maxAttempts && !data && !invocationError; attempt++) {
+        try {
+          console.log(`Tentative ${attempt}/${maxAttempts} → POST /api/auth/verify-insurance`);
+          const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ insuranceNumber }),
+            cache: 'no-store',
+          });
+          if (!resp.ok) {
+            const errText = await resp.text();
+            console.error('Backend call failed:', resp.status, errText);
+            if (attempt === maxAttempts) {
+              invocationError = { message: errText, status: resp.status };
+            }
+          } else {
+            data = await resp.json();
+          }
+        } catch (err: any) {
+          console.error('Backend network error:', err);
+          if (attempt === maxAttempts) {
+            invocationError = err;
+          }
         }
-      } catch (err: any) {
-        console.error('Backend network error:', err);
-        invocationError = err;
+        if (!data && attempt < maxAttempts) {
+          const wait = baseDelayMs * attempt; // backoff progressif
+          console.log(`Attente ${wait}ms avant la nouvelle tentative...`);
+          await new Promise((r) => setTimeout(r, wait));
+        }
       }
 
       if (invocationError) {
         console.error('Edge function error:', invocationError);
+        alert("Le serveur est indisponible ou en redémarrage. Réessayez dans quelques secondes.");
         setIsLoading(false);
         return;
       }

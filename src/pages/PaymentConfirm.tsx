@@ -60,12 +60,12 @@ const PaymentConfirm = () => {
       
       // Appeler l'endpoint serveur (préférence via VITE_API_BASE_URL)
       const apiBase = import.meta.env.VITE_API_BASE_URL || '';
-      const url = apiBase ? `${apiBase}/api/holo/init-payment` : '/api/holo/init-payment';
+      const url = apiBase ? `${apiBase}/holo/init` : '/holo/init';
       let data: any = null;
       const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: amountNum, insuranceNumber: insuredRef, operator: 'holo' })
+        body: JSON.stringify({ amount: amountNum, purchaseref: insuredRef, description: 'Cotisation AMG' })
       });
       data = await resp.json();
       
@@ -84,8 +84,8 @@ const PaymentConfirm = () => {
         form.method = 'POST';
         form.action = data.paymentUrl;
         
-        // Ajouter tous les champs cachés (supporte paymentData ou paymentParams)
-        const params = data.paymentData || data.paymentParams || {};
+        // Ajouter tous les champs cachés selon HOLO (formFields)
+        const params = data.formFields || data.paymentData || data.paymentParams || {};
         Object.entries(params).forEach(([key, value]) => {
           const input = document.createElement('input');
           input.type = 'hidden';

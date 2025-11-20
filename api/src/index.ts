@@ -5,6 +5,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const app = express();
+// Trust proxy to get correct client IP behind reverse proxies
+app.set('trust proxy', 1);
 const PORT = Number(process.env.PORT || 3001);
 const AMG_BASE_URL = (process.env.AMG_BASE_URL || 'https://test.amg.km').replace(/\/$/, '');
 const MATCH_ENV = (process.env.AMG_TEST_POLICY_MATCH || 'TEST')
@@ -543,6 +545,151 @@ app.post('/api/holo/init-payment', async (req: Request, res: Response) => {
     console.error('[holo-init-payment] Error', e?.message || String(e));
     return res.status(500).json({ success: false, error: e?.message || 'Unexpected error' });
   }
+});
+
+// --- HOLO Full Integration ---
+// Helper: build accept/decline/cancel URLs based on merchant base
+function merchantUrl(path: string): string {
+  const base = (process.env.MERCHANT_BASE_URL || AMG_BASE_URL).replace(/\/$/, '');
+  return `${base}${path.startsWith('/') ? '' : '/'}${path}`;
+}
+
+// Helper: determine client IP and whether it matches whitelist
+function getClientIp(req: Request): string {
+  // express trust proxy enabled; req.ip is the left-most entry
+  const ip = (req.ip || '').replace(/^::ffff:/, '');
+  return ip;
+}
+
+function isIpAllowed(req: Request): boolean {
+  const allowed = (process.env.HOLO_WHITELIST_IP || '').trim();
+  if (!allowed) return true; // if not configured, allow
+  const ip = getClientIp(req);
+  return ip === allowed;
+}
+
+// POST /holo/init → prepare HOLO session + form fields
+app.post('/holo/init', async (req: Request, res: Response) => {
+  try {
+    const { amount, purchaseref, description } = req.body || {};
+    const amt = Number(amount || 0);
+    const ref = String(purchaseref || '').trim();
+    const desc = String(description || 'Cotisation AMG').trim();
+    if (!amt || amt <= 0) return res.status(400).json({ error: 'amount must be > 0' });
+    if (!ref) return res.status(400).json({ error: 'purchaseref is required' });
+
+    const merchantId = (process.env.HOLO_MERCHANT_ID || '').trim();
+    const holoUrl = (process.env.HOLO_PAYMENT_URL || '').trim();
+    const mode = (process.env.HOLO_MODE || 'test').toLowerCase();
+    if (!merchantId) return res.status(500).json({ error: 'HOLO_MERCHANT_ID not configured' });
+    if (!holoUrl) return res.status(500).json({ error: 'HOLO_PAYMENT_URL not configured' });
+
+    // Build return URLs
+    const acceptUrl = merchantUrl('/holo/acceptpaiement');
+    const cancelUrl = merchantUrl('/holo/cancelpaiement');
+    const declineUrl = merchantUrl('/holo/declinepaiement');
+
+    // In production, if HOLO requires a pre-session, call provider here
+    let sessionId = `TEST-${Date.now()}`;
+    if (mode === 'production') {
+      try {
+        // Placeholder: some providers issue session IDs via an API; adapt to PDF spec.
+        const createUrl = `${holoUrl}?merchantid=${encodeURIComponent(merchantId)}`;
+        const resp = await fetch(createUrl, { method: 'GET' });
+        const txt = await resp.text();
+        // Try to parse a session id from response if present; else fallback
+        const m = txt.match(/sessionid\s*[=:]\s*([A-Za-z0-9_-]+)/i);
+        if (m && m[1]) sessionId = m[1];
+      } catch (e) {
+        console.warn('[holo/init] session fetch failed, fallback to timestamp');
+      }
+    }
+
+    const formFields = {
+      merchantid: merchantId,
+      sessionid: sessionId,
+      amount: amt,
+      currency: 174, // KMF
+      purchaseref: ref,
+      description: desc,
+      accepturl: acceptUrl,
+      cancelurl: cancelUrl,
+      declineurl: declineUrl,
+    } as Record<string, string | number>;
+
+    // In test mode, post to local fake gateway to simulate HOLO flow
+    const actionUrl = mode === 'production' ? holoUrl : merchantUrl('/holo/dev/fake-gateway');
+
+    return res.status(200).json({ paymentUrl: actionUrl, formFields });
+  } catch (e: any) {
+    console.error('[holo/init] Error', e?.message || String(e));
+    return res.status(500).json({ error: e?.message || 'Unexpected error' });
+  }
+});
+
+// POST /holo/notificationpaiement → server-to-server notification from HOLO
+app.post('/holo/notificationpaiement', async (req: Request, res: Response) => {
+  // Basic IP whitelist
+  if (!isIpAllowed(req)) {
+    console.warn(`[holo/notification] Forbidden IP: ${getClientIp(req)}`);
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  // Optional token check
+  const token = (req.headers['x-holo-token'] as string) || String(req.query.token || '') || String((req.body || {}).token || '');
+  const expected = (process.env.HOLO_WEBHOOK_TOKEN || '').trim();
+  if (expected && token !== expected) {
+    console.warn('[holo/notification] Invalid token');
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  try {
+    const payload = req.body || {};
+    // TODO: verify signature if spec requires (e.g., HMAC). Placeholder:
+    // const signature = req.headers['x-signature']; verify with shared secret.
+    console.log('[holo/notification] Payload:', JSON.stringify(payload));
+    // Here you would update payment status in DB using purchaseref
+    // await db.updatePayment(payload.purchaseref, { status: payload.status || 'success' });
+    return res.status(200).json({ ok: true });
+  } catch (e: any) {
+    console.error('[holo/notification] Error', e?.message || String(e));
+    return res.status(500).json({ error: e?.message || 'Unexpected error' });
+  }
+});
+
+// Simple UI pages for accept/decline/cancel
+function renderHtml(title: string, message: string): string {
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${title}</title><style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f8fafc} .card{background:#fff;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.08);padding:32px;max-width:520px} h1{margin:0 0 12px;font-size:28px} p{margin:0 0 16px;color:#334155} a{display:inline-block;margin-top:12px;text-decoration:none;padding:10px 14px;border-radius:10px;background:#14b8a6;color:#fff}</style></head><body><div class="card"><h1>${title}</h1><p>${message}</p><a href="/">Retour à l'accueil</a></div></body></html>`;
+}
+
+app.get('/holo/acceptpaiement', (req: Request, res: Response) => {
+  const ref = String(req.query.purchaseref || req.query.ref || '');
+  const html = renderHtml('Paiement réussi', `Vos droits AMG sont activés. Référence: ${ref}`);
+  res.status(200).send(html);
+});
+
+app.get('/holo/declinepaiement', (req: Request, res: Response) => {
+  const ref = String(req.query.purchaseref || req.query.ref || '');
+  const html = renderHtml('Paiement échoué', `Le paiement a été refusé. Référence: ${ref}`);
+  res.status(200).send(html);
+});
+
+app.get('/holo/cancelpaiement', (req: Request, res: Response) => {
+  const ref = String(req.query.purchaseref || req.query.ref || '');
+  const html = renderHtml('Paiement annulé', `Vous avez annulé le paiement. Référence: ${ref}`);
+  res.status(200).send(html);
+});
+
+// Dev-only fake gateway to simulate HOLO form POST and redirect to accept
+app.post('/holo/dev/fake-gateway', (req: Request, res: Response) => {
+  const body = req.body || {};
+  const result = String(body.result || 'accept');
+  const acceptUrl = String(body.accepturl || merchantUrl('/holo/acceptpaiement'));
+  const declineUrl = String(body.declineurl || merchantUrl('/holo/declinepaiement'));
+  const cancelUrl = String(body.cancelurl || merchantUrl('/holo/cancelpaiement'));
+  const ref = String(body.purchaseref || '');
+  const target = result === 'decline' ? declineUrl : result === 'cancel' ? cancelUrl : acceptUrl;
+  const url = target + (ref ? (target.includes('?') ? '&' : '?') + `ref=${encodeURIComponent(ref)}` : '');
+  console.log(`[fake-gateway] Redirecting to ${url}`);
+  res.redirect(302, url);
 });
 
 app.listen(PORT, () => {
